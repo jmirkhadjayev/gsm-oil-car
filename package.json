@@ -10,10 +10,13 @@
   "scripts": {
     "dev": "node scripts/dev.js",
     "server": "node --watch server/index.js",
-    "build": "npm --prefix web run build",
+    "schema:copy": "node scripts/copy-schema.js",
+    "build": "npm run schema:copy && npm --prefix web run build",
+    "build:pages": "npm run schema:copy && npm --prefix web run build -- --mode pages",
     "start": "node server/index.js",
     "setup": "npm install && npm --prefix web install && npm run build",
-    "seed": "node server/seed.js"
+    "seed": "node server/seed.js",
+    "smoke": "node scripts/smoke.js"
   },
   "dependencies": {
     "express": "^4.21.2"

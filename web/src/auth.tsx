@@ -1,6 +1,6 @@
 // Autentifikatsiya konteksti va rolga asoslangan ruxsatlar.
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { api, clearToken, getToken, setToken, type Role, type User } from './api';
+import { api, clearToken, getToken, setToken, LOCAL_MODE, type Role, type User } from './api';
 
 type AuthState = {
   user: User | null;
@@ -27,6 +27,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    // Demo rejimida parol so'ralmaydi — baza brauzerda ochiladi va darhol ishga tushadi
+    if (LOCAL_MODE) {
+      api.get<{ user: User }>('/auth/me')
+        .then((r) => setUser(r.user))
+        .catch(() => {})
+        .finally(() => setReady(true));
+      return;
+    }
     if (!getToken()) { setReady(true); return; }
     api.get<{ user: User }>('/auth/me')
       .then((r) => setUser(r.user))

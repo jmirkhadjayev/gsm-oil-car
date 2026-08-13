@@ -4,6 +4,13 @@ Avtotransport xo'jaligi uchun ko'p foydalanuvchili veb-ilova: yo'l varaqalarini 
 rasmiylashtirish, yoqilg'i sarfini norma bo'yicha nazorat qilish va hisobotlar tayyorlash.
 Interfeys **o'zbek va rus** tillarida.
 
+### ▶ Onlayn demo: **https://jmirkhadjayev.github.io/gsm-oil-car/**
+
+O'rnatishsiz sinab ko'rish mumkin — havolani ochsangiz ilova darhol ishlaydi, namuna ma'lumotlar bilan.
+Demoda baza **brauzeringiz ichida** (SQLite/WebAssembly + IndexedDB) ishlaydi: ma'lumot hech qayerga
+yuborilmaydi va faqat shu qurilmada saqlanadi. Shuning uchun demoda parol so'ralmaydi va
+ko'p foydalanuvchilik yo'q — buning uchun quyidagi server versiyasi ishlatiladi.
+
 ---
 
 ## Tez ishga tushirish
@@ -107,10 +114,35 @@ GSM/
 │  ├─ ui.tsx            modal, maydon, bildirishnoma komponentlari
 │  └─ pages/            Dashboard · Waybills · WaybillForm · WaybillPrint ·
 │                       Fuel · Vehicles · Drivers · Reports · Settings
+│  └─ local/            DEMO REJIMI: brauzer ichidagi "server"
+│     ├─ db.ts          sql.js (SQLite WASM) + IndexedDB da saqlash
+│     ├─ api.ts         server/routes/* marshrutlarining ko'chirmasi
+│     ├─ calc.ts        server/calc.js ning ko'chirmasi
+│     └─ seed.ts        namuna ma'lumotlar generatori
 ├─ scripts/dev.js       ishlab chiqish rejimi
 ├─ scripts/smoke.js     uchidan-uchiga tekshiruv
+├─ scripts/copy-schema.js  schema.sql → web/src/local/ (bitta manba)
 └─ data/gsm.db          baza (avtomatik yaratiladi, .gitignore da)
 ```
+
+### Demo (GitHub Pages) versiyasi
+
+`npm run build:pages` — `web/dist` ichiga serversiz versiyani yig'adi
+(`--mode pages`, `VITE_LOCAL=1`). Farqlari:
+
+| | Server versiyasi | Demo versiyasi |
+|---|---|---|
+| Baza | `data/gsm.db` (Node) | brauzer IndexedDB (sql.js) |
+| Kirish | login/parol, rollar | parolsiz, administrator |
+| Marshrutlash | oddiy URL | hash (`#/waybills`) — Pages uchun |
+| Ma'lumot | umumiy, barcha uchun | har bir brauzerda alohida |
+
+Baza sxemasi ikkalasida bir xil: `server/schema.sql` build paytida
+`web/src/local/schema.generated.sql` ga nusxalanadi, shuning uchun `v_waybill_calc`
+ko'rinishidagi norma/fakt hisobi ham aynan bir xil.
+
+Har bir `main` ga push'da [GitHub Actions](.github/workflows/pages.yml) demo versiyani
+avtomatik yig'ib Pages'ga joylaydi.
 
 ### Muhim: qoldiqlar qanday hisoblanadi
 

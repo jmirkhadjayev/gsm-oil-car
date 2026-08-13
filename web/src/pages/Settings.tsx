@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react';
-import { api, type FuelType, type Org, type Role, type User } from '../api';
+import { api, LOCAL_MODE, type FuelType, type Org, type Role, type User } from '../api';
 import { useAuth } from '../auth';
 import { pick, useI18n } from '../i18n';
 import { Checkbox, Empty, Input, Loading, Modal, Select, useAsync, useToast } from '../ui';
 import { ni } from '../lib/format';
 
+type Tab = 'org' | 'users' | 'fuel' | 'password' | 'demo';
+
 export default function Settings() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<'org' | 'users' | 'fuel' | 'password'>('org');
+  const [tab, setTab] = useState<Tab>('org');
 
-  const tabs = [
-    { id: 'org' as const, label: t('orgSettings') },
-    { id: 'users' as const, label: t('users') },
-    { id: 'fuel' as const, label: t('fuelPrices') },
-    { id: 'password' as const, label: t('changePassword') },
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'org', label: t('orgSettings') },
+    { id: 'users', label: t('users') },
+    { id: 'fuel', label: t('fuelPrices') },
+    // Demo rejimida parol ishlatilmaydi — uning o'rniga baza boshqaruvi ko'rsatiladi
+    ...(LOCAL_MODE
+      ? [{ id: 'demo' as Tab, label: t('demoTitle') }]
+      : [{ id: 'password' as Tab, label: t('changePassword') }]),
   ];
 
   return (
@@ -27,7 +32,64 @@ export default function Settings() {
       {tab === 'users' && <Users />}
       {tab === 'fuel' && <FuelPrices />}
       {tab === 'password' && <ChangePassword />}
+      {tab === 'demo' && <DemoSettings />}
     </>
+  );
+}
+
+// ------------------------------ Demo rejimi ------------------------------
+function DemoSettings() {
+  const { t } = useI18n();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+
+  const reset = async () => {
+    if (!window.confirm(t('demoResetConfirm'))) return;
+    setBusy(true);
+    try {
+      const { resetToDemo } = await import('../local/api');
+      await resetToDemo();
+      location.reload();
+    } catch (e: any) {
+      toast(e.message, 'err');
+      setBusy(false);
+    }
+  };
+
+  const download = async () => {
+    try {
+      const { exportDatabase } = await import('../local/api');
+      const bytes = exportDatabase();
+      const blob = new Blob([bytes as unknown as BlobPart], { type: 'application/x-sqlite3' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'gsm.db';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e: any) { toast(e.message, 'err'); }
+  };
+
+  return (
+    <div className="card" style={{ maxWidth: 640 }}>
+      <div className="card-head"><h2>{t('demoTitle')}</h2></div>
+      <div className="card-body">
+        <p style={{ marginTop: 0, color: 'var(--text-muted)' }}>{t('demoAbout')}</p>
+        <div className="divider" />
+
+        <div className="section-title">{t('demoBackup')}</div>
+        <div className="hint" style={{ marginBottom: 8 }}>{t('demoBackupHint')}</div>
+        <button className="btn" onClick={download}>⭳ {t('demoBackup')}</button>
+
+        <div className="divider" />
+
+        <div className="section-title">{t('demoReset')}</div>
+        <div className="hint" style={{ marginBottom: 8 }}>{t('demoResetHint')}</div>
+        <button className="btn btn-danger" onClick={reset} disabled={busy}>↺ {t('demoReset')}</button>
+      </div>
+    </div>
   );
 }
 

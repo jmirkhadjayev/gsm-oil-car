@@ -3,6 +3,7 @@ import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { I18nContext, useI18n, type Lang } from './i18n';
 import { AuthProvider, useAuth } from './auth';
 import { ToastProvider } from './ui';
+import { LOCAL_MODE } from './api';
 
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -36,7 +37,7 @@ function Shell() {
   const { user, ready } = useAuth();
   const location = useLocation();
 
-  if (!ready) return <div className="empty-state" style={{ paddingTop: 80 }}>…</div>;
+  if (!ready) return <Booting />;
   if (!user) {
     return (
       <Routes>
@@ -118,11 +119,31 @@ function Sidebar() {
             <div className="user-role">{roleLabel[user?.role ?? ''] ?? user?.role}</div>
           </div>
         </div>
-        <button className="btn btn-sm" style={{ width: '100%' }} onClick={logout}>
-          ⏻ {t('logout')}
-        </button>
+        {LOCAL_MODE ? (
+          <div className="hint" style={{ textAlign: 'center' }}>
+            {t('demoStorage')}
+          </div>
+        ) : (
+          <button className="btn btn-sm" style={{ width: '100%' }} onClick={logout}>
+            ⏻ {t('logout')}
+          </button>
+        )}
       </div>
     </aside>
+  );
+}
+
+/** Demo rejimida baza brauzerda ochilguncha ko'rsatiladigan ekran. */
+function Booting() {
+  const { t } = useI18n();
+  return (
+    <div className="login-page">
+      <div className="login-card" style={{ textAlign: 'center' }}>
+        <div className="login-logo">⛽</div>
+        <h1 className="login-title">{t('appName')}</h1>
+        <div className="login-sub">{LOCAL_MODE ? t('demoLoading') : t('loading')}</div>
+      </div>
+    </div>
   );
 }
 
@@ -145,6 +166,7 @@ function Topbar() {
   return (
     <header className="topbar no-print">
       <h1>{title}</h1>
+      {LOCAL_MODE && <span className="badge amber" title={t('demoStorage')}>{t('demoBadge')}</span>}
       <div className="spacer" />
       <div className="lang-switch">
         <button className={lang === 'uz' ? 'active' : ''} onClick={() => setLang('uz')}>UZ</button>

@@ -183,6 +183,28 @@ const dict = {
   fuelPrices: ["Yoqilg'i narxlari", 'Цены на топливо'],
   passwordHint: ["Bo'sh qoldirilsa — o'zgarmaydi", 'Оставьте пустым — не изменится'],
 
+  // --- Demo rejimi ---
+  demoBadge: ['DEMO', 'ДЕМО'],
+  demoStorage: ["Ma'lumot faqat shu brauzerda saqlanadi", 'Данные хранятся только в этом браузере'],
+  demoLoading: ["Baza brauzerda tayyorlanmoqda…", 'Подготовка базы в браузере…'],
+  demoTitle: ['Demo rejimi', 'Демо-режим'],
+  demoAbout: [
+    "Bu — dasturning tanishtiruv versiyasi. Baza brauzeringiz ichida (SQLite/WebAssembly) ishlaydi, "
+    + "ma'lumotlaringiz hech qayerga yuborilmaydi va faqat shu qurilmada saqlanadi. "
+    + "Ko'p foydalanuvchili to'liq versiya server bilan ishlaydi.",
+    'Это ознакомительная версия. База работает внутри браузера (SQLite/WebAssembly), '
+    + 'данные никуда не отправляются и хранятся только на этом устройстве. '
+    + 'Полная многопользовательская версия работает с сервером.',
+  ],
+  demoReset: ["Demo ma'lumotni tiklash", 'Восстановить демо-данные'],
+  demoResetHint: ["Barcha o'zgarishlaringiz o'chadi va boshlang'ich namuna ma'lumot qaytariladi",
+                  'Все ваши изменения будут удалены и восстановлены исходные данные'],
+  demoResetConfirm: ["Barcha ma'lumot o'chiriladi va demo qayta yaratiladi. Davom etasizmi?",
+                     'Все данные будут удалены и демо создано заново. Продолжить?'],
+  demoBackup: ['Bazani yuklab olish', 'Скачать базу'],
+  demoBackupHint: ['SQLite fayli sifatida saqlanadi — server versiyasiga ko\'chirish mumkin',
+                   'Сохраняется как файл SQLite — можно перенести в серверную версию'],
+
   // --- Bosma shakl ---
   printTitle: ["YO'L VARAQASI", 'ПУТЕВОЙ ЛИСТ'],
   printOrg: ['Tashkilot', 'Организация'],

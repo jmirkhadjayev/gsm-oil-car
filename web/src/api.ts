@@ -1,4 +1,11 @@
 // Backend bilan aloqa qatlami.
+//
+// Ikki rejim:
+//   • server rejimi  — so'rovlar `/api/...` ga fetch orqali yuboriladi;
+//   • demo rejimi    — VITE_LOCAL=1 bilan yig'ilganda so'rovlar brauzer ichidagi
+//                      SQLite (sql.js) bazasiga tushadi, server umuman kerak emas.
+export const LOCAL_MODE = import.meta.env.VITE_LOCAL === '1';
+
 const TOKEN_KEY = 'gsm_token';
 
 export const getToken = () => localStorage.getItem(TOKEN_KEY) || '';
@@ -14,6 +21,16 @@ export class ApiError extends Error {
 }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+  if (LOCAL_MODE) {
+    const { localRequest, LocalError } = await import('./local/api');
+    try {
+      return (await localRequest(method, url, body)) as T;
+    } catch (err) {
+      if (err instanceof LocalError) throw new ApiError(err.status, err.message);
+      throw err;
+    }
+  }
+
   const token = getToken();
   const res = await fetch(`/api${url}`, {
     method,
