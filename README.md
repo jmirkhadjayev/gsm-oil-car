@@ -1,7 +1,9 @@
-# GSM hisobi — yo'l varaqalari va yoqilg'i hisobi dasturi
+# Aeroport GSM — yer usti texnikasi, yo'l varaqalari va yoqilg'i hisobi
 
-Avtotransport xo'jaligi uchun ko'p foydalanuvchili veb-ilova: yo'l varaqalarini (путевые листы)
-rasmiylashtirish, yoqilg'i sarfini norma bo'yicha nazorat qilish va hisobotlar tayyorlash.
+Xalqaro aeroport va yuk terminali (Cargo) uchun ko'p foydalanuvchili veb-ilova:
+yer usti xizmati texnikasini (**GSE — Ground Support Equipment**) hisobga olish,
+smena/yo'l varaqalarini rasmiylashtirish, reyslarga xizmat operatsiyalarini qayd etish,
+yoqilg'ini norma bo'yicha nazorat qilish va hisobotlar tayyorlash.
 Interfeys **o'zbek va rus** tillarida.
 
 ### ▶ Onlayn demo: **https://jmirkhadjayev.github.io/gsm-oil-car/**
@@ -50,6 +52,58 @@ node scripts/smoke.js       # server ishlab turganda: hisob-kitob mantig'ini tek
 
 ---
 
+## Aeroport moduli
+
+### Texnika turkumlari (GSE klassifikatori)
+
+Dasturda **54 ta turkum** 5 guruhga bo'lingan holda tayyor keladi — har biri o'zbek va rus
+tillarida, tipik normalari bilan:
+
+| Guruh | Misollar |
+|---|---|
+| ✈️ **Havo kemasiga xizmat** (14) | Aviabuksir (pushback), buksirsiz tortuvchi, GPU, ASU, ACU, muzdan tozalash mashinasi, aviayoqilg'i quyish (TZ), gidrant dispenseri, sanitar/suv avtomobili, bort-oshxona avtolifti, «Follow me», o'zi yuruvchi trap |
+| 🧳 **Yo'lovchilarga xizmat** (4) | Perron avtobusi, ambulift, ekipaj avtobusi, tortiladigan trap |
+| 📦 **Yuk terminali** (16) | Konteyner yuklagich (main deck), lentali transporter, **dizel / benzin / elektr avtopogruzchiklar**, richtrak, shtabeler, transpaleta, richsteker, bagaj va yuk tortuvchilari, slave-yuklagich, qaychili ko'targich |
+| 🛫 **Aerodrom xizmati** (16) | UQY tozalash mashinasi, qor tozalagich va rotorli qor puflagich, supuruvchi, aerodrom yong'in avtomobili, ishqalanish o'lchagich, ornitologik xizmat, o't o'ruvchi, belgilash mashinasi, generator, avtokran, ekskavator, frontal yuklagich |
+| 🚗 **Umumiy avtotransport** (4) | Yengil avtomobil, mikroavtobus, avtobus, texnik xizmat avtomobili |
+
+Turkumlar ro'yxati tahrirlanadi — yangi texnika turi qo'shish yoki normalarni o'zgartirish mumkin.
+
+### Norma qanday o'lchanadi
+
+Aeroport texnikasining ko'pchiligi kilometr emas, **motosoat** bo'yicha hisoblanadi.
+Har bir turkum uchun norma asosi ko'rsatiladi:
+
+| Asos | Kimga | Hisoblagich |
+|---|---|---|
+| `km` | perron avtobusi, «Follow me», xizmat avtomobillari | spidometr |
+| `hour` | GPU, ASU, pogruzchiklar, generatorlar | motosoat |
+| `both` | pushback, deicer, TZ, trap, supuruvchi | ikkalasi |
+| `electric` | elektr pogruzchiklar, richtrak, shtabeler | motosoat, kVt·soat |
+
+```
+norma = ( masofa/100 × l/100km + motosoat × l/soat + t·km/100 × l/100t·km ) × (1 + qish%)
+```
+
+### Reyslarga xizmat operatsiyalari
+
+Perron va yuk texnikasining varaqasida marshrut o'rniga **operatsiyalar jadvali** to'ldiriladi:
+reys raqami, havo kemasi turi, bort raqami, stoyanka, xizmat turi (20 ta: pushback, buksirlash,
+yuklash/tushirish, ULD harakati, bagaj, bortpitaniye, suv, sanitar, GPU, ASU, ACU, muzdan tozalash,
+yoqilg'i quyish, trap berish, qor tozalash va h.k.), vaqt, davomiylik, tonna, ULD va yo'lovchilar soni.
+
+Yo'l transporti uchun oddiy marshrut jadvali saqlanib qoladi — forma texnika turkumiga qarab
+avtomatik almashadi.
+
+### Zonalar va smenalar
+
+8 ta aeroport zonasi (perron, yuk terminali, yo'lovchi terminali, UQY, rulash yo'lagi, angar,
+yoqilg'i bazasi, shahar) va uchta smena (kunduzgi / tungi / sutkalik).
+Xodimlarda lavozim (haydovchi, operator-mashinist, mexanik, yuk ortuvchi) va
+**perron ruxsatnomasi** raqami hamda muddati saqlanadi.
+
+---
+
 ## Imkoniyatlar
 
 ### Yo'l varaqalari
@@ -78,8 +132,11 @@ Normalar varaqa ochilganda **nusxalanadi** — spravochnikda norma keyin o'zgars
 eski varaqalarning hisobi buzilmaydi.
 
 ### Hisobotlar
-Avtomobillar / haydovchilar / yoqilg'i turlari kesimida va oylar bo'yicha.
-Har biri Excel uchun CSV ga eksport qilinadi (BOM + `;` ajratgichi) va bosmaga chiqariladi.
+Yetti kesim: **texnika**, **turkumlar**, **zonalar**, **reyslarga xizmat jurnali**,
+xodimlar, yoqilg'i turlari va oylar bo'yicha. Ko'rsatkichlar: masofa, motosoat,
+xizmat ko'rsatilgan reyslar, tonna, ULD, yo'lovchilar, norma/fakt/chetlanish,
+l/100km va l/motosoat. Har biri Excel uchun CSV ga eksport qilinadi
+(BOM + `;` ajratgichi) va bosmaga chiqariladi.
 
 ### Rollar
 | Rol | Imkoniyatlari |
@@ -103,10 +160,13 @@ Har biri Excel uchun CSV ga eksport qilinadi (BOM + `;` ajratgichi) va bosmaga c
 GSM/
 ├─ server/
 │  ├─ schema.sql        ma'lumotlar bazasi sxemasi + v_waybill_calc ko'rinishi
+│  ├─ migrations.json   mavjud bazalarga qo'shiladigan ustunlar ro'yxati
+│  ├─ migrate.js        migratsiyani qo'llovchi (schema.sql dan oldin ishlaydi)
+│  ├─ catalog.json      GSE turkumlari, zonalar, xizmat turlari (uz/ru)
 │  ├─ db.js             SQLite ulanishi, tranzaksiya, audit
-│  ├─ calc.js           norma/fakt hisobi va avtomobil holatini qayta hisoblash
+│  ├─ calc.js           norma/fakt hisobi va texnika holatini qayta hisoblash
 │  ├─ auth.js           parol xeshlash, sessiyalar, rol tekshiruvi
-│  ├─ seed.js           boshlang'ich ma'lumotlar
+│  ├─ seed.js           spravochniklar va namuna aeroport parki
 │  └─ routes/           auth · refs · waybills · fuel · reports
 ├─ web/src/
 │  ├─ i18n.ts           uz/ru lug'ati

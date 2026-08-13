@@ -12,6 +12,7 @@ import WaybillForm from './pages/WaybillForm';
 import WaybillPrint from './pages/WaybillPrint';
 import Fuel from './pages/Fuel';
 import Vehicles from './pages/Vehicles';
+import Categories from './pages/Categories';
 import Drivers from './pages/Drivers';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
@@ -61,6 +62,7 @@ function Shell() {
             <Route path="/waybills/:id/print" element={<WaybillPrint />} />
             <Route path="/fuel" element={<Fuel />} />
             <Route path="/vehicles" element={<Vehicles />} />
+            <Route path="/categories" element={<Categories />} />
             <Route path="/drivers" element={<Drivers />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settings" element={<Settings />} />
@@ -81,7 +83,8 @@ function Sidebar() {
     { to: '/', icon: '🏠', label: t('navDashboard'), end: true },
     { to: '/waybills', icon: '📋', label: t('navWaybills') },
     { to: '/fuel', icon: '⛽', label: t('navFuel') },
-    { to: '/vehicles', icon: '🚚', label: t('navVehicles') },
+    { to: '/vehicles', icon: '🚜', label: t('navVehicles') },
+    { to: '/categories', icon: '🗂️', label: t('navCategories') },
     { to: '/drivers', icon: '👷', label: t('navDrivers') },
     { to: '/reports', icon: '📊', label: t('navReports') },
     ...(can('admin') ? [{ to: '/settings', icon: '⚙️', label: t('navSettings') }] : []),
@@ -156,6 +159,7 @@ function Topbar() {
     '/waybills': t('navWaybills'),
     '/fuel': t('navFuel'),
     '/vehicles': t('navVehicles'),
+    '/categories': t('navCategories'),
     '/drivers': t('navDrivers'),
     '/reports': t('navReports'),
     '/settings': t('navSettings'),

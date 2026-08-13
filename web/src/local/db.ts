@@ -4,6 +4,7 @@
 import initSqlJs, { type Database, type SqlJsStatic } from 'sql.js';
 import wasmUrl from 'sql.js/dist/sql-wasm.wasm?url';
 import schemaSql from './schema.generated.sql?raw';
+import migrations from './migrations.generated.json';
 
 const DB_NAME = 'gsm-hisobi';
 const STORE = 'files';
@@ -80,12 +81,30 @@ export function openDatabase(seedFn?: () => void): Promise<void> {
     db = saved ? new SQL.Database(saved) : new SQL.Database();
 
     db.run('PRAGMA foreign_keys = ON');
+    applyMigrations();           // eski bazaga yetishmayotgan ustunlarni qo'shadi
     db.run(schemaSql);           // CREATE TABLE IF NOT EXISTS … — qayta ochishda xavfsiz
 
     if (seedFn) seedFn();
     await flush();
   })();
   return ready;
+}
+
+/**
+ * server/migrations.json asosida yetishmayotgan ustunlarni qo'shadi.
+ * schema.sql dan OLDIN chaqiriladi — v_waybill_calc yangi ustunlarga tayanadi.
+ */
+function applyMigrations() {
+  const tables = new Set(
+    all<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name)
+  );
+  for (const col of (migrations as any).columns as any[]) {
+    if (!tables.has(col.table)) continue;
+    const existing = new Set(all<{ name: string }>(`PRAGMA table_info(${col.table})`).map((r) => r.name));
+    if (existing.has(col.column)) continue;
+    const def = col.default !== undefined ? ` NOT NULL DEFAULT ${col.default}` : '';
+    db.run(`ALTER TABLE ${col.table} ADD COLUMN ${col.column} ${col.type}${def}`);
+  }
 }
 
 /** Bazani butunlay tozalab, qaytadan yaratadi (demo ma'lumotni tiklash uchun). */
@@ -96,6 +115,11 @@ export async function resetDatabase(seedFn?: () => void) {
   db.run(schemaSql);
   if (seedFn) seedFn();
   await flush();
+}
+
+/** Sxema versiyasi mos kelmasa (yangi modul qo'shilganda) bazani qayta yaratish uchun. */
+export function tableExists(name: string) {
+  return all("SELECT name FROM sqlite_master WHERE type='table' AND name = ?", [name]).length > 0;
 }
 
 // ------------------------------ So'rovlar ------------------------------

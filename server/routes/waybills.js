@@ -66,38 +66,51 @@ router.get('/next-number', requireAuth(), h((_req, res) => res.json({ number: ne
 router.get('/defaults', requireAuth(), h((req, res) => {
   const vehicleId = Number(req.query.vehicle_id);
   const v = get('SELECT * FROM vehicles WHERE id = ?', [vehicleId]);
-  if (!v) throw notFound('Avtomobil topilmadi');
+  if (!v) throw notFound('Texnika topilmadi');
   const org = get('SELECT winter_months FROM org WHERE id = 1');
   const d = str(req.query.date, 'date') || today();
   res.json({
     number: nextNumber(),
     odo_start: v.odometer,
+    hours_start: v.hour_meter,
     fuel_start: v.fuel_balance,
     norm_per_100km: v.norm_per_100km,
     norm_engine_hour: v.norm_engine_hour,
     norm_per_ton_km: v.norm_per_ton_km,
     winter_pct: v.winter_pct,
     winter: isWinterDate(d, org?.winter_months),
+    // Texnika kartochkasidan keladigan kontekst — forma qaysi maydonlarni ko'rsatishini belgilaydi
+    norm_basis: v.norm_basis,
+    zone_id: v.zone_id,
+    tank_capacity: v.tank_capacity,
   });
 }));
 
 router.get('/:id', requireAuth(), h((req, res) => res.json(loadFull(Number(req.params.id)))));
 
 // ------------------------------- Yaratish -------------------------------
+const SHIFTS = ['day', 'night', 'full'];
+
 function baseBody(b, vehicle) {
   const date_from = date(b.date_from, 'Sana (dan)');
   const date_to = date(b.date_to, 'Sana (gacha)', { required: false, def: date_from }) || date_from;
   if (date_to < date_from) throw bad('«Gacha» sanasi «dan» sanasidan oldin bo\'lishi mumkin emas');
+  const shift = str(b.shift, 'Smena', { max: 10 }) || 'day';
+  if (!SHIFTS.includes(shift)) throw bad('Noto\'g\'ri smena turi');
+
   return {
     date_from,
     date_to,
     odo_start: num(b.odo_start, 'Chiqishdagi spidometr', { min: 0, max: 1e9, def: 0 }),
+    hours_start: num(b.hours_start, 'Smena boshidagi motosoat', { min: 0, max: 1e7, def: 0 }),
     fuel_start: num(b.fuel_start, 'Chiqishdagi qoldiq', { min: 0, max: 1e5, def: 0 }),
-    engine_hours: num(b.engine_hours, 'Ish soati', { min: 0, max: 10000, def: 0 }),
+    engine_hours: num(b.engine_hours, 'Motosoat', { min: 0, max: 10000, def: 0 }),
     cargo_ton_km: num(b.cargo_ton_km, 't·km', { min: 0, max: 1e7, def: 0 }),
+    zone_id: b.zone_id ? num(b.zone_id, 'Zona', { min: 1 }) : (vehicle.zone_id ?? null),
+    shift,
     winter: bool(b.winter),
     norm_per_100km: num(b.norm_per_100km, 'Norma (100 km)', { min: 0, max: 1000, def: vehicle.norm_per_100km }),
-    norm_engine_hour: num(b.norm_engine_hour, 'Ish soati normasi', { min: 0, max: 1000, def: vehicle.norm_engine_hour }),
+    norm_engine_hour: num(b.norm_engine_hour, 'Motosoat normasi', { min: 0, max: 1000, def: vehicle.norm_engine_hour }),
     norm_per_ton_km: num(b.norm_per_ton_km, 'Yuk normasi', { min: 0, max: 1000, def: vehicle.norm_per_ton_km }),
     winter_pct: num(b.winter_pct, 'Qishki ustama', { min: 0, max: 100, def: vehicle.winter_pct }),
     task: str(b.task, 'Topshiriq', { max: 500 }),
@@ -105,14 +118,20 @@ function baseBody(b, vehicle) {
   };
 }
 
+/**
+ * Bajarilgan ishlar qatorlari.
+ * Yo'l transporti uchun — marshrut, perron texnikasi uchun — reysga xizmat operatsiyasi.
+ */
 function saveRoutes(waybillId, routes) {
   run('DELETE FROM waybill_routes WHERE waybill_id = ?', [waybillId]);
   if (!Array.isArray(routes)) return;
   routes.forEach((r, i) => {
     if (!r) return;
     run(
-      `INSERT INTO waybill_routes (waybill_id, seq, point_from, point_to, time_out, time_in, distance_km, cargo, cargo_ton)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO waybill_routes (waybill_id, seq, point_from, point_to, time_out, time_in,
+         distance_km, cargo, cargo_ton, flight_no, aircraft_type, aircraft_reg, stand,
+         service_type_id, zone_id, uld_count, pax_count, op_hours)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         waybillId, i + 1,
         str(r.point_from, 'Qayerdan', { max: 200 }),
@@ -122,6 +141,15 @@ function saveRoutes(waybillId, routes) {
         num(r.distance_km, 'Masofa', { min: 0, max: 1e6, def: 0 }),
         str(r.cargo, 'Yuk', { max: 200 }),
         num(r.cargo_ton, 'Yuk (tonna)', { min: 0, max: 1e4, def: 0 }),
+        str(r.flight_no, 'Reys', { max: 20 }),
+        str(r.aircraft_type, 'Havo kemasi turi', { max: 40 }),
+        str(r.aircraft_reg, 'Bort raqami', { max: 20 }),
+        str(r.stand, 'Stoyanka', { max: 20 }),
+        r.service_type_id ? num(r.service_type_id, 'Xizmat turi', { min: 1 }) : null,
+        r.zone_id ? num(r.zone_id, 'Zona', { min: 1 }) : null,
+        num(r.uld_count, 'ULD soni', { min: 0, max: 1000, def: 0 }),
+        num(r.pax_count, 'Yo\'lovchilar', { min: 0, max: 1000, def: 0 }),
+        num(r.op_hours, 'Operatsiya davomiyligi', { min: 0, max: 1000, def: 0 }),
       ]
     );
   });
@@ -144,11 +172,11 @@ router.post('/', requireAuth(...EDIT), h((req, res) => {
   const id = tx(() => {
     const r = run(
       `INSERT INTO waybills (number, date_from, date_to, vehicle_id, driver_id, status,
-         odo_start, fuel_start, engine_hours, cargo_ton_km, winter,
+         odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
          norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [number, f.date_from, f.date_to, vehicle.id, driver.id, status,
-       f.odo_start, f.fuel_start, f.engine_hours, f.cargo_ton_km, f.winter,
+       f.odo_start, f.hours_start, f.fuel_start, f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
        f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes, req.user.id]
     );
     const newId = Number(r.lastInsertRowid);
@@ -181,17 +209,21 @@ router.put('/:id', requireAuth(...EDIT), h((req, res) => {
 
   const f = baseBody(b, vehicle);
   const odo_end = optNum(b.odo_end, 'Qaytgandagi spidometr', { min: 0, max: 1e9 });
+  const hours_end = optNum(b.hours_end, 'Smena oxiridagi motosoat', { min: 0, max: 1e7 });
   const fuel_end = optNum(b.fuel_end, 'Qaytgandagi qoldiq', { min: 0, max: 1e5 });
   if (odo_end != null && odo_end < f.odo_start) throw bad('Qaytgandagi spidometr chiqishdagidan kam bo\'lishi mumkin emas');
+  if (hours_end != null && hours_end < f.hours_start) throw bad('Motosoat hisoblagichi kamayishi mumkin emas');
 
   tx(() => {
     run(
       `UPDATE waybills SET number=?, date_from=?, date_to=?, vehicle_id=?, driver_id=?,
-         odo_start=?, odo_end=?, fuel_start=?, fuel_end=?, engine_hours=?, cargo_ton_km=?, winter=?,
+         odo_start=?, odo_end=?, hours_start=?, hours_end=?, fuel_start=?, fuel_end=?,
+         engine_hours=?, cargo_ton_km=?, zone_id=?, shift=?, winter=?,
          norm_per_100km=?, norm_engine_hour=?, norm_per_ton_km=?, winter_pct=?, task=?, notes=?
        WHERE id=?`,
       [number, f.date_from, f.date_to, vehicle.id, driver.id,
-       f.odo_start, odo_end, f.fuel_start, fuel_end, f.engine_hours, f.cargo_ton_km, f.winter,
+       f.odo_start, odo_end, f.hours_start, hours_end, f.fuel_start, fuel_end,
+       f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
        f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes, id]
     );
     if (b.routes !== undefined) saveRoutes(id, b.routes);
@@ -210,9 +242,12 @@ router.post('/:id/close', requireAuth(...EDIT), h((req, res) => {
   if (!w) throw notFound('Yo\'l varaqasi topilmadi');
   if (w.status === 'closed') throw bad('Varaqa allaqachon yopilgan');
 
-  const odo_end = num(req.body.odo_end, 'Qaytgandagi spidometr', { min: 0, max: 1e9 });
+  const odo_end = num(req.body.odo_end, 'Qaytgandagi spidometr', { min: 0, max: 1e9, def: w.odo_start });
   const fuel_end = num(req.body.fuel_end, 'Qaytgandagi qoldiq', { min: 0, max: 1e5 });
   if (odo_end < w.odo_start) throw bad('Qaytgandagi spidometr chiqishdagidan kam bo\'lishi mumkin emas');
+
+  const hours_end = optNum(req.body.hours_end, 'Smena oxiridagi motosoat', { min: 0, max: 1e7 });
+  if (hours_end != null && hours_end < w.hours_start) throw bad('Motosoat hisoblagichi kamayishi mumkin emas');
 
   const issued = get('SELECT COALESCE(SUM(liters),0) AS s FROM fuel_issues WHERE waybill_id = ?', [id]).s;
   const available = r2(w.fuel_start + issued);
@@ -220,13 +255,13 @@ router.post('/:id/close', requireAuth(...EDIT), h((req, res) => {
     throw bad(`Qaytgandagi qoldiq ${available} l dan oshmasligi kerak (chiqishdagi ${w.fuel_start} + quyilgan ${r2(issued)})`);
   }
 
-  const engine_hours = num(req.body.engine_hours, 'Ish soati', { min: 0, max: 10000, def: w.engine_hours });
+  const engine_hours = num(req.body.engine_hours, 'Motosoat', { min: 0, max: 10000, def: w.engine_hours });
   const cargo_ton_km = num(req.body.cargo_ton_km, 't·km', { min: 0, max: 1e7, def: w.cargo_ton_km });
 
   run(
-    `UPDATE waybills SET odo_end=?, fuel_end=?, engine_hours=?, cargo_ton_km=?,
+    `UPDATE waybills SET odo_end=?, hours_end=?, fuel_end=?, engine_hours=?, cargo_ton_km=?,
        status='closed', closed_at=datetime('now'), closed_by=? WHERE id=?`,
-    [odo_end, fuel_end, engine_hours, cargo_ton_km, req.user.id, id]
+    [odo_end, hours_end, fuel_end, engine_hours, cargo_ton_km, req.user.id, id]
   );
   recalcVehicle(w.vehicle_id);
   audit(req.user.id, 'close', 'waybill', id, `№${w.number}`);

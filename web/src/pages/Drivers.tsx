@@ -2,14 +2,16 @@ import { useState } from 'react';
 import { api, type Driver } from '../api';
 import { useAuth } from '../auth';
 import { useI18n } from '../i18n';
-import { Checkbox, Empty, Input, Loading, Modal, useAsync, useConfirm, useToast } from '../ui';
-import { downloadCsv } from '../lib/format';
+import { Checkbox, Empty, Input, Loading, Modal, Select, useAsync, useConfirm, useToast } from '../ui';
+import { downloadCsv, dmy } from '../lib/format';
+import { POSITIONS, useAirportLabels } from '../lib/airport';
 
 export default function Drivers() {
   const { t } = useI18n();
   const { can } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const L = useAirportLabels();
 
   const [q, setQ] = useState('');
   const [editing, setEditing] = useState<Driver | 'new' | null>(null);
@@ -32,9 +34,11 @@ export default function Drivers() {
         <span className="text-muted">{t('total')}: {rows.length}</span>
         <div className="spacer" />
         <button className="btn btn-sm" disabled={!rows.length} onClick={() => downloadCsv(
-          'haydovchilar',
-          [t('fullName'), t('tabNo'), t('licenseNo'), t('phone'), t('driverClass'), t('status')],
-          rows.map((d) => [d.full_name, d.tab_no, d.license_no, d.phone, d.class, d.active ? t('active') : t('archived')])
+          'xodimlar',
+          [t('fullName'), t('tabNo'), t('position'), t('licenseNo'), t('apronPermit'), t('permitUntil'),
+           t('phone'), t('driverClass'), t('status')],
+          rows.map((d) => [d.full_name, d.tab_no, L.position[d.position] ?? d.position, d.license_no,
+            d.apron_permit, d.permit_until ?? '', d.phone, d.class, d.active ? t('active') : t('archived')])
         )}>⭳ {t('export')}</button>
         {can('refs') && <button className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>＋ {t('newDriver')}</button>}
       </div>
@@ -48,7 +52,8 @@ export default function Drivers() {
             <table className="tbl">
               <thead>
                 <tr>
-                  <th>{t('fullName')}</th><th>{t('tabNo')}</th><th>{t('licenseNo')}</th>
+                  <th>{t('fullName')}</th><th>{t('tabNo')}</th><th>{t('position')}</th>
+                  <th>{t('licenseNo')}</th><th>{t('apronPermit')}</th>
                   <th>{t('phone')}</th><th>{t('driverClass')}</th><th>{t('status')}</th>
                   {can('refs') && <th className="num">{t('actions')}</th>}
                 </tr>
@@ -58,7 +63,12 @@ export default function Drivers() {
                   <tr key={d.id}>
                     <td><b>{d.full_name}</b></td>
                     <td>{d.tab_no || '—'}</td>
+                    <td><span className="badge">{L.position[d.position] ?? d.position}</span></td>
                     <td className="mono">{d.license_no || '—'}</td>
+                    <td className="mono">
+                      {d.apron_permit || '—'}
+                      {d.permit_until && <div className="text-muted" style={{ fontSize: 11 }}>{dmy(d.permit_until)}</div>}
+                    </td>
                     <td>{d.phone || '—'}</td>
                     <td>{d.class || '—'}</td>
                     <td>{d.active ? <span className="badge green">{t('active')}</span> : <span className="badge">{t('archived')}</span>}</td>
@@ -93,17 +103,21 @@ function DriverModal({ row, onClose, onDone }: { row: Driver | null; onClose: ()
   const { t } = useI18n();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
+  const L = useAirportLabels();
   const [form, setForm] = useState({
     full_name: row?.full_name ?? '',
     tab_no: row?.tab_no ?? '',
     license_no: row?.license_no ?? '',
     phone: row?.phone ?? '',
     class: row?.class ?? '',
+    position: row?.position ?? 'driver',
+    apron_permit: row?.apron_permit ?? '',
+    permit_until: row?.permit_until ?? '',
     active: row ? !!row.active : true,
   });
 
-  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
     setForm((f) => ({ ...f, [k]: value as never }));
   };
 
@@ -135,7 +149,14 @@ function DriverModal({ row, onClose, onDone }: { row: Driver | null; onClose: ()
       <Input label={t('fullName')} value={form.full_name} onChange={set('full_name')} autoFocus />
       <div className="form-row">
         <Input label={t('tabNo')} value={form.tab_no} onChange={set('tab_no')} />
+        <Select label={t('position')} value={form.position} onChange={set('position')}>
+          {POSITIONS.map((p) => <option key={p} value={p}>{L.position[p]}</option>)}
+        </Select>
         <Input label={t('licenseNo')} value={form.license_no} onChange={set('license_no')} />
+      </div>
+      <div className="form-row">
+        <Input label={t('apronPermit')} value={form.apron_permit} onChange={set('apron_permit')} placeholder="AP-1042" />
+        <Input label={t('permitUntil')} type="date" value={form.permit_until ?? ''} onChange={set('permit_until')} />
       </div>
       <div className="form-row">
         <Input label={t('phone')} value={form.phone} onChange={set('phone')} placeholder="+998 90 123-45-67" />

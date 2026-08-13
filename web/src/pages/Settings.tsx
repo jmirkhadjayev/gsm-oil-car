@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { api, LOCAL_MODE, type FuelType, type Org, type Role, type User } from '../api';
+import { api, LOCAL_MODE, type FuelType, type Org, type Role, type ServiceType, type User, type Zone } from '../api';
 import { useAuth } from '../auth';
 import { pick, useI18n } from '../i18n';
 import { Checkbox, Empty, Input, Loading, Modal, Select, useAsync, useToast } from '../ui';
-import { ni } from '../lib/format';
+import { useAirportLabels } from '../lib/airport';
 
-type Tab = 'org' | 'users' | 'fuel' | 'password' | 'demo';
+type Tab = 'org' | 'users' | 'fuel' | 'airport' | 'password' | 'demo';
 
 export default function Settings() {
   const { t } = useI18n();
@@ -13,6 +13,7 @@ export default function Settings() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'org', label: t('orgSettings') },
+    { id: 'airport', label: `${t('zones')} / ${t('serviceTypes')}` },
     { id: 'users', label: t('users') },
     { id: 'fuel', label: t('fuelPrices') },
     // Demo rejimida parol ishlatilmaydi — uning o'rniga baza boshqaruvi ko'rsatiladi
@@ -29,11 +30,177 @@ export default function Settings() {
         ))}
       </div>
       {tab === 'org' && <OrgSettings />}
+      {tab === 'airport' && <AirportRefs />}
       {tab === 'users' && <Users />}
       {tab === 'fuel' && <FuelPrices />}
       {tab === 'password' && <ChangePassword />}
       {tab === 'demo' && <DemoSettings />}
     </>
+  );
+}
+
+// ------------------- Aeroport zonalari va xizmat turlari -------------------
+function AirportRefs() {
+  const { t, lang } = useI18n();
+  const toast = useToast();
+  const zones = useAsync(() => api.get<Zone[]>('/zones'), []);
+  const services = useAsync(() => api.get<ServiceType[]>('/service-types'), []);
+  const [editing, setEditing] = useState<
+    { kind: 'zone' | 'service'; row: Zone | ServiceType | null } | null
+  >(null);
+  const L = useAirportLabels();
+
+  const toggle = async (kind: 'zone' | 'service', row: any) => {
+    try {
+      const url = kind === 'zone' ? `/zones/${row.id}` : `/service-types/${row.id}`;
+      await api.put(url, { ...row, active: row.active ? 0 : 1 });
+      (kind === 'zone' ? zones : services).reload();
+    } catch (e: any) { toast(e.message, 'err'); }
+  };
+
+  return (
+    <div className="grid cols-2">
+      <div className="card">
+        <div className="card-head">
+          <h2>{t('zones')}</h2>
+          <div className="spacer" />
+          <button className="btn btn-sm" onClick={() => setEditing({ kind: 'zone', row: null })}>＋ {t('newZone')}</button>
+        </div>
+        <div className="table-wrap">
+          {zones.loading ? <Loading /> : !zones.data?.length ? <Empty /> : (
+            <table className="tbl">
+              <thead><tr><th>{t('categoryCode')}</th><th>{t('zone')}</th><th>{t('status')}</th><th className="num" /></tr></thead>
+              <tbody>
+                {zones.data.map((z) => (
+                  <tr key={z.id}>
+                    <td className="mono">{z.code}</td>
+                    <td><b>{pick(lang, z, 'name')}</b></td>
+                    <td>
+                      <button className={`badge ${z.active ? 'green' : ''}`} style={{ cursor: 'pointer', border: 'none' }}
+                              onClick={() => toggle('zone', z)}>
+                        {z.active ? t('active') : t('archived')}
+                      </button>
+                    </td>
+                    <td className="num">
+                      <button className="btn btn-icon btn-sm" onClick={() => setEditing({ kind: 'zone', row: z })}>✎</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2>{t('serviceTypes')}</h2>
+          <div className="spacer" />
+          <button className="btn btn-sm" onClick={() => setEditing({ kind: 'service', row: null })}>＋ {t('newService')}</button>
+        </div>
+        <div className="table-wrap">
+          {services.loading ? <Loading /> : !services.data?.length ? <Empty /> : (
+            <table className="tbl">
+              <thead>
+                <tr><th>{t('categoryCode')}</th><th>{t('serviceType')}</th><th>{t('serviceUnit')}</th><th>{t('status')}</th><th className="num" /></tr>
+              </thead>
+              <tbody>
+                {services.data.map((s) => (
+                  <tr key={s.id}>
+                    <td className="mono">{s.code}</td>
+                    <td><b>{pick(lang, s, 'name')}</b></td>
+                    <td>{L.serviceUnit[s.unit] ?? s.unit}</td>
+                    <td>
+                      <button className={`badge ${s.active ? 'green' : ''}`} style={{ cursor: 'pointer', border: 'none' }}
+                              onClick={() => toggle('service', s)}>
+                        {s.active ? t('active') : t('archived')}
+                      </button>
+                    </td>
+                    <td className="num">
+                      <button className="btn btn-icon btn-sm" onClick={() => setEditing({ kind: 'service', row: s })}>✎</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+
+      {editing && (
+        <RefModal
+          kind={editing.kind}
+          row={editing.row}
+          onClose={() => setEditing(null)}
+          onDone={() => { setEditing(null); zones.reload(); services.reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function RefModal({ kind, row, onClose, onDone }: {
+  kind: 'zone' | 'service';
+  row: any | null;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { t } = useI18n();
+  const toast = useToast();
+  const L = useAirportLabels();
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({
+    code: row?.code ?? '',
+    name_uz: row?.name_uz ?? '',
+    name_ru: row?.name_ru ?? '',
+    unit: row?.unit ?? 'flight',
+    active: row ? !!row.active : true,
+  });
+
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const value = e.target.type === 'checkbox' ? (e.target as HTMLInputElement).checked : e.target.value;
+    setForm((f) => ({ ...f, [k]: value as never }));
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const base = kind === 'zone' ? '/zones' : '/service-types';
+      const payload = { ...form, active: form.active ? 1 : 0 };
+      if (row) await api.put(`${base}/${row.id}`, payload);
+      else await api.post(base, payload);
+      toast(t('saved'), 'ok');
+      onDone();
+    } catch (e: any) {
+      toast(e.message, 'err');
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={row ? `${row.code}` : kind === 'zone' ? t('newZone') : t('newService')}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" onClick={onClose}>{t('cancel')}</button>
+          <button className="btn btn-primary" onClick={submit}
+                  disabled={busy || !form.code || !form.name_uz || !form.name_ru}>{t('save')}</button>
+        </>
+      }
+    >
+      <Input label={t('categoryCode')} value={form.code} onChange={set('code')} disabled={!!row} placeholder="APRON" />
+      <Input label="Nomi (o'zbekcha)" value={form.name_uz} onChange={set('name_uz')} />
+      <Input label="Название (по-русски)" value={form.name_ru} onChange={set('name_ru')} />
+      {kind === 'service' && (
+        <Select label={t('serviceUnit')} value={form.unit} onChange={set('unit')}>
+          {['flight', 'ton', 'uld', 'pax', 'hour'].map((u) => (
+            <option key={u} value={u}>{L.serviceUnit[u]}</option>
+          ))}
+        </Select>
+      )}
+      <Checkbox label={t('active')} checked={form.active} onChange={set('active')} />
+    </Modal>
   );
 }
 

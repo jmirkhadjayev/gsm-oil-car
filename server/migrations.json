@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "Mavjud bazalarga yangi ustunlarni qo'shish ro'yxati (aeroport moduli).",
+    "CREATE TABLE IF NOT EXISTS eski jadvallarga ustun qo'shmaydi, shuning uchun",
+    "har ochilishda PRAGMA table_info tekshirilib, yetishmayotgani ALTER bilan qo'shiladi.",
+    "Migratsiya schema.sql dan OLDIN bajariladi — v_waybill_calc yangi ustunlarga tayanadi."
+  ],
+  "columns": [
+    { "table": "vehicles", "column": "category_id", "type": "INTEGER" },
+    { "table": "vehicles", "column": "zone_id", "type": "INTEGER" },
+    { "table": "vehicles", "column": "norm_basis", "type": "TEXT", "default": "'km'" },
+    { "table": "vehicles", "column": "power_type", "type": "TEXT", "default": "'diesel'" },
+    { "table": "vehicles", "column": "serial_no", "type": "TEXT", "default": "''" },
+    { "table": "vehicles", "column": "made_year", "type": "INTEGER" },
+    { "table": "vehicles", "column": "init_hours", "type": "REAL", "default": "0" },
+    { "table": "vehicles", "column": "hour_meter", "type": "REAL", "default": "0" },
+
+    { "table": "drivers", "column": "position", "type": "TEXT", "default": "'driver'" },
+    { "table": "drivers", "column": "apron_permit", "type": "TEXT", "default": "''" },
+    { "table": "drivers", "column": "permit_until", "type": "TEXT" },
+
+    { "table": "waybills", "column": "hours_start", "type": "REAL", "default": "0" },
+    { "table": "waybills", "column": "hours_end", "type": "REAL" },
+    { "table": "waybills", "column": "zone_id", "type": "INTEGER" },
+    { "table": "waybills", "column": "shift", "type": "TEXT", "default": "'day'" },
+
+    { "table": "waybill_routes", "column": "flight_no", "type": "TEXT", "default": "''" },
+    { "table": "waybill_routes", "column": "aircraft_type", "type": "TEXT", "default": "''" },
+    { "table": "waybill_routes", "column": "aircraft_reg", "type": "TEXT", "default": "''" },
+    { "table": "waybill_routes", "column": "stand", "type": "TEXT", "default": "''" },
+    { "table": "waybill_routes", "column": "service_type_id", "type": "INTEGER" },
+    { "table": "waybill_routes", "column": "zone_id", "type": "INTEGER" },
+    { "table": "waybill_routes", "column": "uld_count", "type": "INTEGER", "default": "0" },
+    { "table": "waybill_routes", "column": "pax_count", "type": "INTEGER", "default": "0" },
+    { "table": "waybill_routes", "column": "op_hours", "type": "REAL", "default": "0" }
+  ]
+}

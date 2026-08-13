@@ -1,16 +1,20 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, type Driver, type RouteRow, type Vehicle, type Waybill } from '../api';
+import {
+  api, emptyRoute,
+  type Driver, type RouteRow, type ServiceType, type Vehicle, type Waybill, type Zone,
+} from '../api';
 import { useAuth } from '../auth';
-import { useI18n } from '../i18n';
+import { pick, useI18n } from '../i18n';
 import { Checkbox, Empty, Input, Loading, Select, StatusBadge, useAsync, useToast } from '../ui';
 import { dmy, nf, ni, todayStr } from '../lib/format';
+import { GROUP_ICON, SHIFTS, isGse, useAirportLabels, usesHours, usesKm } from '../lib/airport';
 import { CloseModal } from './Waybills';
 
 type FormState = {
   number: string; date_from: string; date_to: string;
-  vehicle_id: string; driver_id: string;
-  odo_start: string; fuel_start: string;
+  vehicle_id: string; driver_id: string; zone_id: string; shift: string;
+  odo_start: string; hours_start: string; fuel_start: string;
   engine_hours: string; cargo_ton_km: string; winter: boolean;
   norm_per_100km: string; norm_engine_hour: string; norm_per_ton_km: string; winter_pct: string;
   task: string; notes: string;
@@ -18,8 +22,8 @@ type FormState = {
 
 const emptyForm: FormState = {
   number: '', date_from: todayStr(), date_to: todayStr(),
-  vehicle_id: '', driver_id: '',
-  odo_start: '0', fuel_start: '0',
+  vehicle_id: '', driver_id: '', zone_id: '', shift: 'day',
+  odo_start: '0', hours_start: '0', fuel_start: '0',
   engine_hours: '0', cargo_ton_km: '0', winter: false,
   norm_per_100km: '0', norm_engine_hour: '0', norm_per_ton_km: '0', winter_pct: '0',
   task: '', notes: '',
@@ -28,13 +32,16 @@ const emptyForm: FormState = {
 export default function WaybillForm() {
   const { id } = useParams();
   const isNew = !id;
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const { can } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const L = useAirportLabels();
 
   const vehicles = useAsync(() => api.get<Vehicle[]>('/vehicles?active=1'), []);
   const drivers = useAsync(() => api.get<Driver[]>('/drivers?active=1'), []);
+  const zones = useAsync(() => api.get<Zone[]>('/zones?active=1'), []);
+  const services = useAsync(() => api.get<ServiceType[]>('/service-types?active=1'), []);
 
   const [form, setForm] = useState<FormState>(emptyForm);
   const [routes, setRoutes] = useState<RouteRow[]>([]);
@@ -45,7 +52,6 @@ export default function WaybillForm() {
 
   const readOnly = !can('waybills') || (loaded?.status === 'closed' && !can('admin'));
 
-  // --- Mavjud varaqani yuklash ---
   const load = () => {
     if (isNew) return;
     setLoading(true);
@@ -55,21 +61,22 @@ export default function WaybillForm() {
         setForm({
           number: w.number, date_from: w.date_from, date_to: w.date_to,
           vehicle_id: String(w.vehicle_id), driver_id: String(w.driver_id),
-          odo_start: String(w.odo_start), fuel_start: String(w.fuel_start),
+          zone_id: String(w.zone_id ?? ''), shift: w.shift ?? 'day',
+          odo_start: String(w.odo_start), hours_start: String(w.hours_start ?? 0),
+          fuel_start: String(w.fuel_start),
           engine_hours: String(w.engine_hours), cargo_ton_km: String(w.cargo_ton_km),
           winter: !!w.winter,
           norm_per_100km: String(w.norm_per_100km), norm_engine_hour: String(w.norm_engine_hour),
           norm_per_ton_km: String(w.norm_per_ton_km), winter_pct: String(w.winter_pct),
           task: w.task, notes: w.notes,
         });
-        setRoutes(w.routes ?? []);
+        setRoutes((w.routes ?? []).map((r) => ({ ...emptyRoute(), ...r })));
       })
       .catch((e) => toast(e.message, 'err'))
       .finally(() => setLoading(false));
   };
   useEffect(load, [id]);
 
-  // --- Yangi varaqa: avtomobil tanlanganda boshlang'ich qiymatlarni olish ---
   const applyDefaults = async (vehicleId: string, date: string) => {
     if (!vehicleId) return;
     try {
@@ -78,12 +85,14 @@ export default function WaybillForm() {
         ...f,
         number: f.number || d.number,
         odo_start: String(d.odo_start),
+        hours_start: String(d.hours_start),
         fuel_start: String(d.fuel_start),
         norm_per_100km: String(d.norm_per_100km),
         norm_engine_hour: String(d.norm_engine_hour),
         norm_per_ton_km: String(d.norm_per_ton_km),
         winter_pct: String(d.winter_pct),
         winter: !!d.winter,
+        zone_id: f.zone_id || String(d.zone_id ?? ''),
       }));
     } catch (e: any) { toast(e.message, 'err'); }
   };
@@ -98,21 +107,34 @@ export default function WaybillForm() {
     }
   };
 
-  // --- Marshrut qatorlari ---
-  const addRoute = () =>
-    setRoutes((r) => [...r, { point_from: '', point_to: '', time_out: '', time_in: '', distance_km: 0, cargo: '', cargo_ton: 0 }]);
+  // --------------------- Tanlangan texnika konteksti ---------------------
+  const vehicle = (vehicles.data ?? []).find((v) => String(v.id) === form.vehicle_id);
+  const basis = vehicle?.norm_basis ?? loaded?.norm_basis ?? 'km';
+  const group = vehicle?.group_code ?? loaded?.group_code ?? 'road';
+  const gse = isGse(group);
+  const withKm = usesKm(basis);
+  const withHours = usesHours(basis);
+
+  // --------------------------- Operatsiyalar ---------------------------
+  const addRoute = () => setRoutes((r) => [...r, { ...emptyRoute(), zone_id: form.zone_id ? Number(form.zone_id) : null }]);
   const setRoute = (i: number, patch: Partial<RouteRow>) =>
     setRoutes((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
   const delRoute = (i: number) => setRoutes((r) => r.filter((_, idx) => idx !== i));
 
-  // --- Jonli hisob-kitob ---
+  // ---------------------------- Jonli hisob ----------------------------
   const routeDistance = routes.reduce((s, r) => s + (Number(r.distance_km) || 0), 0);
+  const routeHours = routes.reduce((s, r) => s + (Number(r.op_hours) || 0), 0);
   const distance = loaded?.odo_end != null ? loaded.odo_end - Number(form.odo_start) : routeDistance;
+  const hours = loaded?.hours_end != null
+    ? Math.max(0, loaded.hours_end - Number(form.hours_start))
+    : (routeHours || Number(form.engine_hours || 0));
+
   const winterK = form.winter ? 1 + Number(form.winter_pct || 0) / 100 : 1;
-  const norm =
-    (distance / 100) * Number(form.norm_per_100km || 0) * winterK +
-    Number(form.engine_hours || 0) * Number(form.norm_engine_hour || 0) +
-    (Number(form.cargo_ton_km || 0) / 100) * Number(form.norm_per_ton_km || 0);
+  const norm = (
+    (distance / 100) * Number(form.norm_per_100km || 0) +
+    hours * Number(form.norm_engine_hour || 0) +
+    (Number(form.cargo_ton_km || 0) / 100) * Number(form.norm_per_ton_km || 0)
+  ) * winterK;
 
   const save = async () => {
     setBusy(true);
@@ -122,16 +144,18 @@ export default function WaybillForm() {
         winter: form.winter ? 1 : 0,
         vehicle_id: Number(form.vehicle_id),
         driver_id: Number(form.driver_id),
+        zone_id: form.zone_id ? Number(form.zone_id) : null,
         odo_start: Number(form.odo_start),
+        hours_start: Number(form.hours_start || 0),
         fuel_start: Number(form.fuel_start),
-        engine_hours: Number(form.engine_hours || 0),
+        engine_hours: routeHours || Number(form.engine_hours || 0),
         cargo_ton_km: Number(form.cargo_ton_km || 0),
         norm_per_100km: Number(form.norm_per_100km || 0),
         norm_engine_hour: Number(form.norm_engine_hour || 0),
         norm_per_ton_km: Number(form.norm_per_ton_km || 0),
         winter_pct: Number(form.winter_pct || 0),
         routes,
-        ...(loaded ? { odo_end: loaded.odo_end, fuel_end: loaded.fuel_end } : {}),
+        ...(loaded ? { odo_end: loaded.odo_end, hours_end: loaded.hours_end, fuel_end: loaded.fuel_end } : {}),
       };
       const saved = isNew
         ? await api.post<Waybill>('/waybills', payload)
@@ -148,8 +172,8 @@ export default function WaybillForm() {
 
   if (loading) return <Loading />;
 
-  const vehicle = (vehicles.data ?? []).find((v) => String(v.id) === form.vehicle_id);
   const canSubmit = form.vehicle_id && form.driver_id && form.date_from && !readOnly;
+  const fuelUnitLabel = vehicle?.power_type === 'electric' ? (lang === 'uz' ? 'kVt·s' : 'кВт·ч') : (lang === 'uz' ? 'l' : 'л');
 
   return (
     <>
@@ -157,6 +181,7 @@ export default function WaybillForm() {
         <Link to="/waybills" className="btn btn-sm">← {t('back')}</Link>
         <h2>{isNew ? t('newWaybill') : `${t('waybillNo')} ${form.number}`}</h2>
         {loaded && <StatusBadge status={loaded.status} />}
+        {loaded && <span className="badge">{L.shift[loaded.shift]}</span>}
         <div className="spacer" />
         {loaded && <Link to={`/waybills/${loaded.id}/print`} className="btn btn-sm">🖨 {t('print')}</Link>}
         {loaded && loaded.status !== 'closed' && can('waybills') && (
@@ -183,21 +208,36 @@ export default function WaybillForm() {
             <Select label={t('vehicle')} value={form.vehicle_id} onChange={set('vehicle_id')} disabled={readOnly || !isNew}>
               <option value="">—</option>
               {(vehicles.data ?? []).map((v) => (
-                <option key={v.id} value={v.id}>{v.garage_no} · {v.plate} · {v.model} ({v.fuel_code})</option>
+                <option key={v.id} value={v.id}>
+                  {GROUP_ICON[v.group_code ?? 'road']} {v.garage_no} · {v.model}
+                  {v.plate && v.plate !== '—' ? ` · ${v.plate}` : ''}
+                </option>
               ))}
             </Select>
 
-            <Select label={t('driver')} value={form.driver_id} onChange={set('driver_id')} disabled={readOnly}>
-              <option value="">—</option>
-              {(drivers.data ?? []).map((d) => (
-                <option key={d.id} value={d.id}>{d.full_name}{d.tab_no ? ` (${d.tab_no})` : ''}</option>
-              ))}
-            </Select>
+            <div className="form-row">
+              <Select label={t('driver')} value={form.driver_id} onChange={set('driver_id')} disabled={readOnly}>
+                <option value="">—</option>
+                {(drivers.data ?? []).map((d) => (
+                  <option key={d.id} value={d.id}>{d.full_name}{d.tab_no ? ` (${d.tab_no})` : ''}</option>
+                ))}
+              </Select>
+              <Select label={t('shift')} value={form.shift} onChange={set('shift')} disabled={readOnly}>
+                {SHIFTS.map((s) => <option key={s} value={s}>{L.shift[s]}</option>)}
+              </Select>
+              <Select label={t('zone')} value={form.zone_id} onChange={set('zone_id')} disabled={readOnly}>
+                <option value="">—</option>
+                {(zones.data ?? []).map((z) => <option key={z.id} value={z.id}>{pick(lang, z, 'name')}</option>)}
+              </Select>
+            </div>
 
             {vehicle && (
               <div className="text-muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-                {t('currentOdometer')}: <b>{ni(vehicle.odometer)}</b> km · {t('tankBalance')}:{' '}
-                <b>{nf(vehicle.fuel_balance)}</b> / {ni(vehicle.tank_capacity)} l
+                <span className="badge blue">{pick(lang, vehicle, 'category_name')}</span>{' '}
+                {L.basis[vehicle.norm_basis]}
+                {withKm && <> · {t('currentOdometer')}: <b>{ni(vehicle.odometer)}</b> km</>}
+                {withHours && <> · {t('currentHours')}: <b>{nf(vehicle.hour_meter, 1)}</b></>}
+                {' '}· {t('tankBalance')}: <b>{nf(vehicle.fuel_balance)}</b> {fuelUnitLabel}
               </div>
             )}
 
@@ -214,67 +254,146 @@ export default function WaybillForm() {
           <div className="card-head"><h2>{t('printFuelBlock')}</h2></div>
           <div className="card-body">
             <div className="form-row">
-              <Input label={t('odoStart')} type="number" step="1" value={form.odo_start} onChange={set('odo_start')} disabled={readOnly} />
-              <Input label={t('fuelStart')} type="number" step="0.01" value={form.fuel_start} onChange={set('fuel_start')} disabled={readOnly} />
+              {withKm && (
+                <Input label={t('odoStart')} type="number" step="1" value={form.odo_start}
+                       onChange={set('odo_start')} disabled={readOnly} />
+              )}
+              {withHours && (
+                <Input label={t('hoursStart')} type="number" step="0.1" value={form.hours_start}
+                       onChange={set('hours_start')} disabled={readOnly} />
+              )}
+              <Input label={`${t('fuelStart')} (${fuelUnitLabel})`} type="number" step="0.01"
+                     value={form.fuel_start} onChange={set('fuel_start')} disabled={readOnly} />
             </div>
 
             {loaded?.status === 'closed' && (
               <div className="form-row">
-                <Input label={t('odoEnd')} value={ni(loaded.odo_end)} disabled />
+                {withKm && <Input label={t('odoEnd')} value={ni(loaded.odo_end)} disabled />}
+                {withHours && <Input label={t('hoursEnd')} value={nf(loaded.hours_end, 1)} disabled />}
                 <Input label={t('fuelEnd')} value={nf(loaded.fuel_end)} disabled />
               </div>
             )}
 
             <div className="form-row">
-              <Input label={t('engineHours')} type="number" step="0.1" value={form.engine_hours} onChange={set('engine_hours')} disabled={readOnly} />
-              <Input label={t('cargoTonKm')} type="number" step="0.1" value={form.cargo_ton_km} onChange={set('cargo_ton_km')} disabled={readOnly} />
+              {withHours && !routeHours && (
+                <Input label={t('workedHours')} type="number" step="0.1" value={form.engine_hours}
+                       onChange={set('engine_hours')} disabled={readOnly}
+                       hint={gse ? t('addOperation') : undefined} />
+              )}
+              <Input label={t('cargoTonKm')} type="number" step="0.1" value={form.cargo_ton_km}
+                     onChange={set('cargo_ton_km')} disabled={readOnly} />
             </div>
 
-            <div className="section-title">{t('norm100')}</div>
+            <div className="section-title">{t('normBasis')}: {L.basis[basis]}</div>
             <div className="form-row">
-              <Input label={t('norm100')} type="number" step="0.1" value={form.norm_per_100km} onChange={set('norm_per_100km')} disabled={readOnly} />
-              <Input label={t('normHour')} type="number" step="0.1" value={form.norm_engine_hour} onChange={set('norm_engine_hour')} disabled={readOnly} />
-              <Input label={t('normTonKm')} type="number" step="0.1" value={form.norm_per_ton_km} onChange={set('norm_per_ton_km')} disabled={readOnly} />
-              <Input label={t('winterPct')} type="number" step="1" value={form.winter_pct} onChange={set('winter_pct')} disabled={readOnly} />
+              {withKm && (
+                <Input label={t('norm100')} type="number" step="0.1" value={form.norm_per_100km}
+                       onChange={set('norm_per_100km')} disabled={readOnly} />
+              )}
+              {withHours && (
+                <Input label={t('normHour')} type="number" step="0.1" value={form.norm_engine_hour}
+                       onChange={set('norm_engine_hour')} disabled={readOnly} />
+              )}
+              <Input label={t('normTonKm')} type="number" step="0.1" value={form.norm_per_ton_km}
+                     onChange={set('norm_per_ton_km')} disabled={readOnly} />
+              <Input label={t('winterPct')} type="number" step="1" value={form.winter_pct}
+                     onChange={set('winter_pct')} disabled={readOnly} />
             </div>
-            <Checkbox label={`${t('winter')} (+${form.winter_pct}%)`} checked={form.winter} onChange={set('winter')} disabled={readOnly} />
+            <Checkbox label={`${t('winter')} (+${form.winter_pct}%)`} checked={form.winter}
+                      onChange={set('winter')} disabled={readOnly} />
 
             <div className="divider" />
 
             <div className="grid cols-4">
-              <div>
-                <div className="stat-label">{t('distance')}</div>
-                <div className="stat-value" style={{ fontSize: 19 }}>{ni(distance)}</div>
-              </div>
-              <div>
-                <div className="stat-label">{t('normLiters')}</div>
-                <div className="stat-value" style={{ fontSize: 19 }}>{nf(norm)}</div>
-              </div>
-              <div>
-                <div className="stat-label">{t('fuelIssued')}</div>
-                <div className="stat-value" style={{ fontSize: 19 }}>{nf(loaded?.fuel_issued ?? 0)}</div>
-              </div>
-              <div>
-                <div className="stat-label">{t('factLiters')}</div>
-                <div className="stat-value" style={{ fontSize: 19 }}>
-                  {loaded?.fact_liters == null ? '—' : nf(loaded.fact_liters)}
-                </div>
-              </div>
+              {withKm && <Metric label={t('distance')} value={ni(distance)} />}
+              {withHours && <Metric label={t('workedHours')} value={nf(hours, 1)} />}
+              <Metric label={t('normLiters')} value={nf(norm)} />
+              <Metric label={t('fuelIssued')} value={nf(loaded?.fuel_issued ?? 0)} />
+              <Metric label={t('factLiters')} value={loaded?.fact_liters == null ? '—' : nf(loaded.fact_liters)} />
             </div>
           </div>
         </div>
       </div>
 
-      {/* ---------------------------- Marshrut ---------------------------- */}
+      {/* ------------------------- Bajarilgan ishlar ------------------------- */}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="card-head">
-          <h2>{t('route')}</h2>
+          <h2>{gse ? t('operations') : t('route')}</h2>
           <div className="spacer" />
-          <span className="text-muted" style={{ fontSize: 12.5 }}>{t('distance')}: <b>{ni(routeDistance)}</b></span>
-          {!readOnly && <button className="btn btn-sm" onClick={addRoute}>＋ {t('addRoute')}</button>}
+          <span className="text-muted" style={{ fontSize: 12.5 }}>
+            {withKm && <>{t('distance')}: <b>{ni(routeDistance)}</b>{' '}</>}
+            {withHours && <>{t('workedHours')}: <b>{nf(routeHours, 1)}</b></>}
+          </span>
+          {!readOnly && <button className="btn btn-sm" onClick={addRoute}>＋ {gse ? t('addOperation') : t('addRoute')}</button>}
         </div>
         <div className="table-wrap">
-          {routes.length === 0 ? <Empty /> : (
+          {routes.length === 0 ? <Empty /> : gse ? (
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }}>№</th>
+                  <th style={{ width: 110 }}>{t('flightNo')}</th>
+                  <th style={{ width: 120 }}>{t('aircraftType')}</th>
+                  <th style={{ width: 110 }}>{t('aircraftReg')}</th>
+                  <th style={{ width: 80 }}>{t('stand')}</th>
+                  <th style={{ width: 170 }}>{t('serviceType')}</th>
+                  <th style={{ width: 90 }}>{t('timeOut')}</th>
+                  <th style={{ width: 90 }}>{t('timeIn')}</th>
+                  {withHours && <th style={{ width: 90 }} className="num">{t('opHours')}</th>}
+                  {withKm && <th style={{ width: 90 }} className="num">{t('distance')}</th>}
+                  <th style={{ width: 80 }} className="num">{t('cargoTonShort')}</th>
+                  <th style={{ width: 70 }} className="num">{t('uldCount')}</th>
+                  <th style={{ width: 80 }} className="num">{t('paxCount')}</th>
+                  {!readOnly && <th style={{ width: 46 }} />}
+                </tr>
+              </thead>
+              <tbody>
+                {routes.map((r, i) => (
+                  <tr key={i}>
+                    <td>{i + 1}</td>
+                    <td><input value={r.flight_no} onChange={(e) => setRoute(i, { flight_no: e.target.value })}
+                               placeholder="HY-601" disabled={readOnly} /></td>
+                    <td><input value={r.aircraft_type} onChange={(e) => setRoute(i, { aircraft_type: e.target.value })}
+                               placeholder="B767-300" disabled={readOnly} /></td>
+                    <td><input value={r.aircraft_reg} onChange={(e) => setRoute(i, { aircraft_reg: e.target.value })}
+                               placeholder="UK-67003" disabled={readOnly} /></td>
+                    <td><input value={r.stand} onChange={(e) => setRoute(i, { stand: e.target.value })}
+                               placeholder="12" disabled={readOnly} /></td>
+                    <td>
+                      <select value={r.service_type_id ?? ''} disabled={readOnly}
+                              onChange={(e) => setRoute(i, { service_type_id: e.target.value ? Number(e.target.value) : null })}>
+                        <option value="">—</option>
+                        {(services.data ?? []).map((s) => (
+                          <option key={s.id} value={s.id}>{pick(lang, s, 'name')}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td><input type="time" value={r.time_out} onChange={(e) => setRoute(i, { time_out: e.target.value })} disabled={readOnly} /></td>
+                    <td><input type="time" value={r.time_in} onChange={(e) => setRoute(i, { time_in: e.target.value })} disabled={readOnly} /></td>
+                    {withHours && (
+                      <td><input type="number" step="0.1" className="num" value={r.op_hours}
+                                 onChange={(e) => setRoute(i, { op_hours: Number(e.target.value) })} disabled={readOnly} /></td>
+                    )}
+                    {withKm && (
+                      <td><input type="number" step="0.1" className="num" value={r.distance_km}
+                                 onChange={(e) => setRoute(i, { distance_km: Number(e.target.value) })} disabled={readOnly} /></td>
+                    )}
+                    <td><input type="number" step="0.1" className="num" value={r.cargo_ton}
+                               onChange={(e) => setRoute(i, { cargo_ton: Number(e.target.value) })} disabled={readOnly} /></td>
+                    <td><input type="number" step="1" className="num" value={r.uld_count}
+                               onChange={(e) => setRoute(i, { uld_count: Number(e.target.value) })} disabled={readOnly} /></td>
+                    <td><input type="number" step="1" className="num" value={r.pax_count}
+                               onChange={(e) => setRoute(i, { pax_count: Number(e.target.value) })} disabled={readOnly} /></td>
+                    {!readOnly && (
+                      <td className="num">
+                        <button className="btn btn-icon btn-sm btn-danger" onClick={() => delRoute(i)}>✕</button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
             <table className="tbl">
               <thead>
                 <tr>
@@ -364,5 +483,14 @@ export default function WaybillForm() {
         />
       )}
     </>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="stat-label">{label}</div>
+      <div className="stat-value" style={{ fontSize: 19 }}>{value}</div>
+    </div>
   );
 }

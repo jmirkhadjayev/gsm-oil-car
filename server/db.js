@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { migrate } from './migrate.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -18,6 +19,14 @@ export const dbPath = dbFile;
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 db.exec('PRAGMA busy_timeout = 5000');
+
+// Avval eski bazaga yetishmayotgan ustunlar qo'shiladi, keyin sxema qo'llanadi.
+const added = migrate({
+  all: (sql) => db.prepare(sql).all(),
+  exec: (sql) => db.exec(sql),
+});
+if (added.length) console.log(`• Baza yangilandi: ${added.join(', ')}`);
+
 db.exec(fs.readFileSync(path.join(here, 'schema.sql'), 'utf8'));
 
 // ------------------------- Qulay yordamchilar -------------------------

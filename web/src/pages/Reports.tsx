@@ -1,13 +1,15 @@
 import { useState } from 'react';
-import { api, qs } from '../api';
+import { api, qs, type EquipGroup, type NormBasis, type Position } from '../api';
 import { pick, useI18n, type Key } from '../i18n';
 import { Deviation, Empty, Input, Loading, useAsync } from '../ui';
-import { downloadCsv, monthRange, nf, ni } from '../lib/format';
+import { downloadCsv, dmy, monthRange, nf, ni } from '../lib/format';
+import { GROUP_ICON, useAirportLabels } from '../lib/airport';
 
-type Tab = 'vehicles' | 'drivers' | 'fuel-types' | 'monthly';
+type Tab = 'vehicles' | 'categories' | 'zones' | 'flights' | 'drivers' | 'fuel-types' | 'monthly';
 
 export default function Reports() {
   const { t, lang } = useI18n();
+  const L = useAirportLabels();
   const [tab, setTab] = useState<Tab>('vehicles');
   const [range, setRange] = useState(monthRange());
   const [year, setYear] = useState(String(new Date().getFullYear()));
@@ -22,23 +24,73 @@ export default function Reports() {
   const columns: Record<Tab, { key: Key | string; label: string; get: (r: any) => any; num?: boolean; dev?: boolean }[]> = {
     vehicles: [
       { key: 'garage', label: t('garageNo'), get: (r) => r.garage_no },
-      { key: 'plate', label: t('plate'), get: (r) => r.plate },
       { key: 'model', label: t('model'), get: (r) => r.model },
+      { key: 'cat', label: t('category'), get: (r) => `${GROUP_ICON[(r.group_code ?? 'road') as EquipGroup]} ${pick(lang, r, 'category_name') || '—'}` },
       { key: 'fuel', label: t('fuelType'), get: (r) => r.fuel_code },
       { key: 'wb', label: t('waybillsCount'), get: (r) => ni(r.waybills), num: true },
       { key: 'dist', label: t('distance'), get: (r) => ni(r.distance_km), num: true },
+      { key: 'hours', label: t('workedHours'), get: (r) => nf(r.engine_hours, 1), num: true },
+      { key: 'flights', label: t('flights'), get: (r) => ni(r.flights), num: true },
       { key: 'issued', label: t('fuelIssued'), get: (r) => nf(r.issued_liters), num: true },
       { key: 'norm', label: t('normLiters'), get: (r) => nf(r.norm_liters), num: true },
       { key: 'fact', label: t('factLiters'), get: (r) => nf(r.fact_liters), num: true },
       { key: 'per100', label: t('factPer100'), get: (r) => (r.fact_per_100km == null ? '—' : nf(r.fact_per_100km)), num: true },
+      { key: 'perhour', label: t('factPerHour'), get: (r) => (r.fact_per_hour == null ? '—' : nf(r.fact_per_hour)), num: true },
       { key: 'dev', label: t('deviation'), get: (r) => r.deviation, num: true, dev: true },
       { key: 'bal', label: t('tankBalance'), get: (r) => nf(r.fuel_balance), num: true },
+    ],
+    categories: [
+      { key: 'cat', label: t('category'), get: (r) => `${GROUP_ICON[r.group_code as EquipGroup]} ${pick(lang, r, 'name')}` },
+      { key: 'group', label: t('group'), get: (r) => L.group[r.group_code as EquipGroup] },
+      { key: 'basis', label: t('normBasis'), get: (r) => L.basis[r.norm_basis as NormBasis] },
+      { key: 'units', label: t('units_'), get: (r) => ni(r.units), num: true },
+      { key: 'wb', label: t('waybillsCount'), get: (r) => ni(r.waybills), num: true },
+      { key: 'dist', label: t('distance'), get: (r) => ni(r.distance_km), num: true },
+      { key: 'hours', label: t('workedHours'), get: (r) => nf(r.engine_hours, 1), num: true },
+      { key: 'flights', label: t('flights'), get: (r) => ni(r.flights), num: true },
+      { key: 'cargo', label: t('cargoTonShort'), get: (r) => nf(r.cargo_ton, 1), num: true },
+      { key: 'norm', label: t('normLiters'), get: (r) => nf(r.norm_liters), num: true },
+      { key: 'fact', label: t('factLiters'), get: (r) => nf(r.fact_liters), num: true },
+      { key: 'dev', label: t('deviation'), get: (r) => r.deviation, num: true, dev: true },
+    ],
+    zones: [
+      { key: 'zone', label: t('zone'), get: (r) => pick(lang, r, 'name') || r.zone_code },
+      { key: 'units', label: t('units_'), get: (r) => ni(r.units), num: true },
+      { key: 'wb', label: t('waybillsCount'), get: (r) => ni(r.waybills), num: true },
+      { key: 'dist', label: t('distance'), get: (r) => ni(r.distance_km), num: true },
+      { key: 'hours', label: t('workedHours'), get: (r) => nf(r.engine_hours, 1), num: true },
+      { key: 'flights', label: t('flights'), get: (r) => ni(r.flights), num: true },
+      { key: 'cargo', label: t('cargoTonShort'), get: (r) => nf(r.cargo_ton, 1), num: true },
+      { key: 'uld', label: t('uldCount'), get: (r) => ni(r.uld_count), num: true },
+      { key: 'pax', label: t('paxCount'), get: (r) => ni(r.pax_count), num: true },
+      { key: 'norm', label: t('normLiters'), get: (r) => nf(r.norm_liters), num: true },
+      { key: 'fact', label: t('factLiters'), get: (r) => nf(r.fact_liters), num: true },
+      { key: 'dev', label: t('deviation'), get: (r) => r.deviation, num: true, dev: true },
+    ],
+    flights: [
+      { key: 'date', label: t('date'), get: (r) => dmy(r.date) },
+      { key: 'flight', label: t('flightNo'), get: (r) => r.flight_no },
+      { key: 'ac', label: t('aircraftType'), get: (r) => r.aircraft_type || '—' },
+      { key: 'reg', label: t('aircraftReg'), get: (r) => r.aircraft_reg || '—' },
+      { key: 'stand', label: t('stand'), get: (r) => r.stand || '—' },
+      { key: 'svc', label: t('serviceType'), get: (r) => pick(lang, r, 'service_name') || '—' },
+      { key: 'eq', label: t('equipment'), get: (r) => `${r.garage_no} · ${r.model}` },
+      { key: 'drv', label: t('driver'), get: (r) => r.driver_name },
+      { key: 'tout', label: t('timeOut'), get: (r) => r.time_out || '—' },
+      { key: 'tin', label: t('timeIn'), get: (r) => r.time_in || '—' },
+      { key: 'cargo', label: t('cargoTonShort'), get: (r) => nf(r.cargo_ton, 1), num: true },
+      { key: 'uld', label: t('uldCount'), get: (r) => ni(r.uld_count), num: true },
+      { key: 'pax', label: t('paxCount'), get: (r) => ni(r.pax_count), num: true },
+      { key: 'wbno', label: t('waybillNo'), get: (r) => `№${r.waybill_number}` },
     ],
     drivers: [
       { key: 'name', label: t('fullName'), get: (r) => r.full_name },
       { key: 'tab', label: t('tabNo'), get: (r) => r.tab_no || '—' },
+      { key: 'pos', label: t('position'), get: (r) => L.position[r.position as Position] ?? r.position },
       { key: 'wb', label: t('waybillsCount'), get: (r) => ni(r.waybills), num: true },
       { key: 'dist', label: t('distance'), get: (r) => ni(r.distance_km), num: true },
+      { key: 'hours', label: t('workedHours'), get: (r) => nf(r.engine_hours, 1), num: true },
+      { key: 'flights', label: t('flights'), get: (r) => ni(r.flights), num: true },
       { key: 'norm', label: t('normLiters'), get: (r) => nf(r.norm_liters), num: true },
       { key: 'fact', label: t('factLiters'), get: (r) => nf(r.fact_liters), num: true },
       { key: 'dev', label: t('deviation'), get: (r) => r.deviation, num: true, dev: true },
@@ -55,6 +107,9 @@ export default function Reports() {
       { key: 'month', label: t('month'), get: (r) => monthName(r.month, lang) },
       { key: 'wb', label: t('waybillsCount'), get: (r) => ni(r.waybills), num: true },
       { key: 'dist', label: t('distance'), get: (r) => ni(r.distance_km), num: true },
+      { key: 'hours', label: t('workedHours'), get: (r) => nf(r.engine_hours, 1), num: true },
+      { key: 'flights', label: t('flights'), get: (r) => ni(r.flights), num: true },
+      { key: 'cargo', label: t('cargoTonShort'), get: (r) => nf(r.cargo_ton, 1), num: true },
       { key: 'issued', label: t('fuelIssued'), get: (r) => nf(r.issued_liters), num: true },
       { key: 'norm', label: t('normLiters'), get: (r) => nf(r.norm_liters), num: true },
       { key: 'fact', label: t('factLiters'), get: (r) => nf(r.fact_liters), num: true },
@@ -79,6 +134,9 @@ export default function Reports() {
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'vehicles', label: t('repVehicles') },
+    { id: 'categories', label: t('repCategories') },
+    { id: 'zones', label: t('repZones') },
+    { id: 'flights', label: t('repFlights') },
     { id: 'drivers', label: t('repDrivers') },
     { id: 'fuel-types', label: t('repFuelTypes') },
     { id: 'monthly', label: t('repMonthly') },
@@ -133,6 +191,8 @@ export default function Reports() {
                       wb: 'waybills', dist: 'distance_km', issued: 'issued_liters',
                       norm: 'norm_liters', fact: 'fact_liters', dev: 'deviation',
                       amount: 'issued_amount', rec: 'records', liters: 'issued_liters',
+                      hours: 'engine_hours', flights: 'flights', cargo: 'cargo_ton',
+                      uld: 'uld_count', pax: 'pax_count', units: 'units',
                     };
                     const key = map[c.key as string];
                     if (!key || totals[key] === undefined) return <td key={c.key} />;

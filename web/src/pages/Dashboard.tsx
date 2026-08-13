@@ -1,8 +1,9 @@
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, type EquipGroup } from '../api';
 import { useI18n } from '../i18n';
 import { Empty, Loading, StatusBadge, useAsync } from '../ui';
 import { dmy, nf, ni } from '../lib/format';
+import { GROUP_ICON, useAirportLabels } from '../lib/airport';
 
 type Data = {
   period: { from: string; to: string };
@@ -11,10 +12,12 @@ type Data = {
   lowFuel: any[];
   daily: { date: string; liters: number }[];
   topDeviation: any[];
+  byGroup: any[];
 };
 
 export default function Dashboard() {
   const { t } = useI18n();
+  const L = useAirportLabels();
   const { data, loading } = useAsync(() => api.get<Data>('/reports/dashboard'), []);
 
   if (loading) return <Loading />;
@@ -26,8 +29,8 @@ export default function Dashboard() {
   return (
     <>
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
-        <Stat label={t('statMonthWaybills')} value={ni(s.month_waybills)} />
-        <Stat label={t('statMonthDistance')} value={ni(s.month_distance)} unit="km" />
+        <Stat label={t('statMonthFlights')} value={ni(s.month_flights)} />
+        <Stat label={t('statMonthHours')} value={nf(s.month_hours, 1)} unit="m/s" />
         <Stat label={t('statMonthLiters')} value={nf(s.month_liters)} unit="l" />
         <Stat
           label={t('statDeviation')}
@@ -38,10 +41,17 @@ export default function Dashboard() {
       </div>
 
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
+        <Stat label={t('statMonthWaybills')} value={ni(s.month_waybills)} />
+        <Stat label={t('statMonthDistance')} value={ni(s.month_distance)} unit="km" />
+        <Stat label={t('statMonthCargo')} value={nf(s.month_cargo, 1)} unit="t" />
+        <Stat label={t('statMonthAmount')} value={ni(s.month_amount)} unit="so'm" />
+      </div>
+
+      <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat label={t('statVehicles')} value={ni(s.vehicles)} />
         <Stat label={t('statDrivers')} value={ni(s.drivers)} />
         <Stat label={t('statOpen')} value={ni(s.open_waybills)} tone={s.open_waybills > 0 ? 'pos' : undefined} />
-        <Stat label={t('statMonthAmount')} value={ni(s.month_amount)} unit="so'm" />
+        <Stat label={t('uldCount')} value={ni(s.month_uld)} />
       </div>
 
       <div className="grid cols-2">
@@ -93,6 +103,38 @@ export default function Dashboard() {
                         <td>{w.garage_no} · {w.plate}</td>
                         <td>{w.driver_name}</td>
                         <td><StatusBadge status={w.status} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="card">
+          <div className="card-head"><h2>{t('fleetByGroup')}</h2></div>
+          <div className="card-body tight">
+            {!data.byGroup?.length ? <Empty /> : (
+              <div className="table-wrap">
+                <table className="tbl">
+                  <thead>
+                    <tr>
+                      <th>{t('group')}</th>
+                      <th className="num">{t('units_')}</th>
+                      <th className="num">{t('workedHours')}</th>
+                      <th className="num">{t('flights')}</th>
+                      <th className="num">{t('factLiters')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.byGroup.map((g: any) => (
+                      <tr key={g.group_code}>
+                        <td>{GROUP_ICON[g.group_code as EquipGroup] ?? ''} {L.group[g.group_code as EquipGroup] ?? g.group_code}</td>
+                        <td className="num">{ni(g.units)}</td>
+                        <td className="num">{nf(g.engine_hours, 1)}</td>
+                        <td className="num">{ni(g.flights)}</td>
+                        <td className="num"><b>{nf(g.fact_liters)}</b></td>
                       </tr>
                     ))}
                   </tbody>
