@@ -1,0 +1,21 @@
+{
+  "name": "gsm-hisob",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Yo'l varaqalari, yoqilg'i va moylar hisobi (GSM) — server + SQLite",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "server": "node --watch server/index.js",
+    "build": "npm --prefix web run build",
+    "start": "node server/index.js",
+    "setup": "npm install && npm --prefix web install && npm run build",
+    "seed": "node server/seed.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
