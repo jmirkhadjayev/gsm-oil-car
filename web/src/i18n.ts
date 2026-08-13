@@ -242,8 +242,8 @@ const dict = {
   archived: ['Arxivda', 'В архиве'],
 
   // --- Hisobotlar ---
-  repVehicles: ['Avtomobillar kesimida', 'По автомобилям'],
-  repDrivers: ['Haydovchilar kesimida', 'По водителям'],
+  repVehicles: ['Texnika kesimida', 'По технике'],
+  repDrivers: ['Xodimlar kesimida', 'По персоналу'],
   repFuelTypes: ["Yoqilg'i turlari", 'По видам топлива'],
   repMonthly: ['Oylar bo\'yicha', 'По месяцам'],
   waybillsCount: ['Varaqalar', 'Листов'],
