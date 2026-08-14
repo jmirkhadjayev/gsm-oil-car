@@ -8,11 +8,19 @@ const pad = (n: number) => String(n).padStart(2, '0');
 
 type CatalogItem = { code: string; uz: string; ru: string; group: string; basis: string; km: number; hour: number };
 
+// Filiallar — server/seed.js dagi ro'yxat bilan bir xil
+const BRANCHES: [string, string, string, number][] = [
+  ['TAS', 'Toshkent xalqaro aeroporti',  'Международный аэропорт Ташкент',   44],
+  ['SKD', 'Samarqand xalqaro aeroporti', 'Международный аэропорт Самарканд', 20],
+  ['BHK', 'Buxoro xalqaro aeroporti',    'Международный аэропорт Бухара',    14],
+  ['KSQ', 'Qarshi aeroporti',            'Аэропорт Карши',                    9],
+];
+
 export function seedReference() {
-  // Demoda bitta filial (Toshkent) — barcha yozuvlar branch_id = 1 bilan ketadi
-  if (!get('SELECT id FROM branches WHERE code = ?', ['TAS'])) {
-    run('INSERT INTO branches (id, code, name_uz, name_ru) VALUES (1,?,?,?)',
-        ['TAS', 'Toshkent xalqaro aeroporti', 'Международный аэропорт Ташкент']);
+  for (const [code, uz, ru] of BRANCHES) {
+    if (!get('SELECT id FROM branches WHERE code = ?', [code])) {
+      run('INSERT INTO branches (code, name_uz, name_ru) VALUES (?,?,?)', [code, uz, ru]);
+    }
   }
 
   if (!get('SELECT id FROM org WHERE id = 1')) {
@@ -69,7 +77,14 @@ export function seedReference() {
 
 export function seedDemo() {
   if (get('SELECT id FROM vehicles LIMIT 1')) return;   // allaqachon to'ldirilgan
+  for (const [code, , , size] of BRANCHES) {
+    const b = get<{ id: number }>('SELECT id FROM branches WHERE code = ?', [code]);
+    if (b) seedBranch(b.id, size);
+  }
+}
 
+/** Bitta filial uchun park, xodimlar va joriy oy varaqalari. */
+function seedBranch(branchId: number, limit: number) {
   const catId = (code: string) => get<{ id: number }>('SELECT id FROM equipment_categories WHERE code = ?', [code])?.id ?? null;
   const zoneId = (code: string) => get<{ id: number }>('SELECT id FROM zones WHERE code = ?', [code])?.id ?? null;
   const fuelId = (code: string) => get<{ id: number }>('SELECT id FROM fuel_types WHERE code = ?', [code])?.id ?? null;
@@ -125,17 +140,21 @@ export function seedDemo() {
     ['SVC-03', '10 E 003 SV', 'Isuzu texnik xizmat',      'SERVICEVAN', 'HANGAR',   'DT',      90, 51200,     0,  42, 2019],
   ];
 
-  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet) {
+  // Filiallar bir-biriga o'xshamasligi uchun hisoblagichlar farqlanadi
+  const k = 0.7 + (branchId % 5) * 0.15;
+  const r0 = (n: number) => Math.round(n * k);
+
+  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet.slice(0, limit)) {
     const c = get<any>('SELECT * FROM equipment_categories WHERE code = ?', [cat])!;
     run(
-      `INSERT INTO vehicles (garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
+      `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
          made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct, norm_engine_hour,
          init_odometer, init_hours, init_fuel, odometer, hour_meter, fuel_balance)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [branchId, garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
        fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
        year, fuelId(fuel), tank, c.default_norm_km, 10, c.default_norm_hour,
-       odo, hours, fuelBal, odo, hours, fuelBal]
+       r0(odo), r0(hours), fuelBal, r0(odo), r0(hours), fuelBal]
     );
   }
 
@@ -151,12 +170,13 @@ export function seedDemo() {
     ['Abdullayev Shohruh Baxodirovich','109', 'AB3334445', '+998 93 901-23-45', 'C',       'mechanic', 'AP-1050'],
     ['Qosimov Aziz Tolibovich',        '110', 'AB6667778', '+998 94 012-34-56', 'B, C',    'loader',   'AP-1051'],
   ];
-  for (const [name, tab, lic, phone, cls, pos, permit] of staff) {
-    run(`INSERT INTO drivers (full_name, tab_no, license_no, phone, class, position, apron_permit)
-         VALUES (?,?,?,?,?,?,?)`, [name, tab, lic, phone, cls, pos, permit]);
+  const staffCount = Math.max(4, Math.round(staff.length * Math.min(1, limit / 44)));
+  for (const [name, tab, lic, phone, cls, pos, permit] of staff.slice(0, staffCount)) {
+    run(`INSERT INTO drivers (branch_id, full_name, tab_no, license_no, phone, class, position, apron_permit)
+         VALUES (?,?,?,?,?,?,?,?)`, [branchId, name, `${branchId}${tab}`, lic, phone, cls, pos, permit]);
   }
 
-  generateWaybills();
+  generateWaybills(branchId);
 }
 
 // Turkum → tipik xizmat turlari
@@ -186,10 +206,11 @@ const FLIGHTS: [string, string, string][] = [
   ['TK-6501', 'A330-200F', 'TC-JDP'], ['HY-8001', 'B767-300F', 'UK-67F01'],
 ];
 
-/** Joriy oy uchun yopilgan smena varaqalari va reysga xizmat operatsiyalari. */
-function generateWaybills() {
-  const vehicleIds = all<{ id: number }>('SELECT id FROM vehicles WHERE active = 1 ORDER BY id').map((r) => r.id);
-  const drivers = all<any>('SELECT * FROM drivers WHERE active = 1 ORDER BY id');
+/** Joriy oy uchun yopilgan smena varaqalari va reysga xizmat operatsiyalari (bitta filial). */
+function generateWaybills(branchId: number) {
+  const vehicleIds = all<{ id: number }>(
+    'SELECT id FROM vehicles WHERE active = 1 AND branch_id = ? ORDER BY id', [branchId]).map((r) => r.id);
+  const drivers = all<any>('SELECT * FROM drivers WHERE active = 1 AND branch_id = ? ORDER BY id', [branchId]);
   const winterMonths = get<{ winter_months: string }>('SELECT winter_months FROM org WHERE id = 1')?.winter_months;
   const serviceId = (code: string) =>
     get<{ id: number }>('SELECT id FROM service_types WHERE code = ?', [code])?.id ?? null;
@@ -225,11 +246,11 @@ function generateWaybills() {
       const shift = (day + vi) % 3 === 0 ? 'night' : 'day';
 
       const res = run(
-        `INSERT INTO waybills (number, date_from, date_to, vehicle_id, driver_id, status,
+        `INSERT INTO waybills (branch_id, number, date_from, date_to, vehicle_id, driver_id, status,
            odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
            norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, created_by)
-         VALUES (?,?,?,?,?,'issued',?,?,?,?,0,?,?,?,?,?,?,?,?,1)`,
-        [String(number), date, date, v.id, driver.id, odoStart, hoursStart, fuelStart, hours,
+         VALUES (?,?,?,?,?,?,'issued',?,?,?,?,0,?,?,?,?,?,?,?,?,1)`,
+        [branchId, String(number), date, date, v.id, driver.id, odoStart, hoursStart, fuelStart, hours,
          v.zone_id, shift, winter, v.norm_per_100km, v.norm_engine_hour, v.norm_per_ton_km, v.winter_pct,
          ({
            aircraft: 'Havo kemalariga perron xizmati',
@@ -283,10 +304,10 @@ function generateWaybills() {
         issued = Math.max(5, Math.round((target - fuelStart) * 10) / 10);
         const price = get<{ price: number }>('SELECT price FROM fuel_types WHERE id = ?', [v.fuel_type_id])?.price ?? 11200;
         run(
-          `INSERT INTO fuel_issues (date, vehicle_id, driver_id, waybill_id, fuel_type_id,
+          `INSERT INTO fuel_issues (branch_id, date, vehicle_id, driver_id, waybill_id, fuel_type_id,
              liters, price, amount, source, station, doc_no, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,1)`,
-          [date, v.id, driver.id, wbId, v.fuel_type_id, issued, price, r2(issued * price),
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          [branchId, date, v.id, driver.id, wbId, v.fuel_type_id, issued, price, r2(issued * price),
            v.power_type === 'electric' ? 'ombor' : 'azs',
            v.power_type === 'electric' ? 'Zaryadlash stansiyasi' : stations[(day + vi) % stations.length],
            `${pad(day)}${pad(month)}-${v.garage_no}`]

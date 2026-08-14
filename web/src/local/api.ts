@@ -12,13 +12,31 @@ const bad = (m: string) => new LocalError(400, m);
 const notFound = (m = 'Topilmadi') => new LocalError(404, m);
 
 // Demo rejimida autentifikatsiya o'chirilgan — barcha amallar administrator nomidan
-// Demoda bitta filial — almashtirgich ko'rsatilmaydi
+// Demoda bosh ofis sifatida kiriladi: barcha filiallar ko'rinadi va
+// yon paneldagi almashtirgich orqali bittasiga cheklanadi.
 const DEMO_USER = {
-  id: 1, username: 'admin', full_name: 'Administrator', role: 'admin' as const, active: 1,
-  branch_id: 1, branch_code: 'TAS',
-  branch_name_uz: 'Toshkent xalqaro aeroporti',
-  branch_name_ru: 'Международный аэропорт Ташкент',
+  id: 1, username: 'admin', full_name: 'Bosh ofis administratori',
+  role: 'admin' as const, active: 1, branch_id: null,
 };
+
+/**
+ * Tanlangan filial. Frontend uni localStorage'ga yozadi (api.ts → setBranch),
+ * brauzer versiyasida so'rov sarlavhasi yo'q, shuning uchun bevosita shu yerdan o'qiladi.
+ * null → barcha filiallar.
+ */
+const BR = (): number | null => Number(localStorage.getItem('gsm_branch')) || null;
+
+/** WHERE uchun filial sharti (qiymat Number, shuning uchun so'rovga to'g'ridan-to'g'ri qo'yiladi). */
+const AND_B = (col = 'branch_id') => { const b = BR(); return b ? ` AND ${col} = ${b}` : ''; };
+
+/** where/params massivlariga filial shartini qo'shadi. */
+function pushBranch(where: string[], col = 'branch_id') {
+  const b = BR();
+  if (b) where.push(`${col} = ${b}`);
+}
+
+/** Yangi yozuv qaysi filialga tegishli (filial tanlanmagan bo'lsa — birinchisi). */
+const branchForInsert = () => BR() ?? 1;
 
 let initialized = false;
 export async function ensureReady() {
@@ -77,10 +95,11 @@ function loadWaybill(id: number) {
   return w;
 }
 
-function nextNumber() {
+/** Keyingi bo'sh raqam — filial ichida. */
+function nextNumber(branchId: number) {
   const row = get<{ m: number }>(
     `SELECT MAX(CAST(number AS INTEGER)) AS m FROM waybills
-      WHERE number GLOB '[0-9]*' AND CAST(number AS INTEGER) > 0`);
+      WHERE branch_id = ? AND number GLOB '[0-9]*' AND CAST(number AS INTEGER) > 0`, [branchId]);
   return String((Number(row?.m) || 0) + 1);
 }
 
@@ -230,6 +249,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
     if (method === 'GET' && seg.length === 1) {
       const where: string[] = [];
       const params: any[] = [];
+      pushBranch(where, 'v.branch_id');
       if (q.get('active') === '1') where.push('v.active = 1');
       if (q.get('category_id')) { where.push('v.category_id = ?'); params.push(Number(q.get('category_id'))); }
       if (q.get('group')) { where.push('ec.group_code = ?'); params.push(q.get('group')!); }
@@ -253,7 +273,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const garage_no = str(b.garage_no);
       if (!garage_no) throw bad('Garaj/inventar raqami to\'ldirilishi shart');
       if (!str(b.model)) throw bad('Rusum to\'ldirilishi shart');
-      return [garage_no, str(b.plate) || '—', str(b.model),
+      return [branchForInsert(), garage_no, str(b.plate) || '—', str(b.model),
               b.category_id ? num(b.category_id) : null, b.zone_id ? num(b.zone_id) : null,
               str(b.norm_basis) || 'km', str(b.power_type) || 'diesel',
               str(b.serial_no), b.made_year ? num(b.made_year) : null,
@@ -264,11 +284,13 @@ export async function localRequest(method: string, url: string, body?: any): Pro
 
     if (method === 'POST') {
       const v = vehicleBody();
-      if (get('SELECT id FROM vehicles WHERE garage_no = ?', [v[0] as string])) throw bad('Bu garaj raqami band');
-      const res = run(`INSERT INTO vehicles (garage_no, plate, model, category_id, zone_id, norm_basis,
+      if (get('SELECT id FROM vehicles WHERE garage_no = ? AND branch_id = ?', [v[1] as string, v[0] as number])) {
+        throw bad('Bu filialda bunday garaj raqami band');
+      }
+      const res = run(`INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis,
           power_type, serial_no, made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct,
           norm_engine_hour, norm_per_ton_km, init_odometer, init_hours, init_fuel, active, notes)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v);
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v);
       recalcVehicle(res.lastInsertRowid);
       audit(1, 'create', 'vehicle', res.lastInsertRowid);
       return get(`${VEHICLE_SELECT} WHERE v.id = ?`, [res.lastInsertRowid]);
@@ -277,8 +299,9 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const id = Number(seg[1]);
       if (!get('SELECT id FROM vehicles WHERE id = ?', [id])) throw notFound();
       const v = vehicleBody();
-      if (get('SELECT id FROM vehicles WHERE garage_no = ? AND id <> ?', [v[0] as string, id])) throw bad('Bu garaj raqami band');
-      run(`UPDATE vehicles SET garage_no=?, plate=?, model=?, category_id=?, zone_id=?, norm_basis=?,
+      if (get('SELECT id FROM vehicles WHERE garage_no = ? AND branch_id = ? AND id <> ?',
+              [v[1] as string, v[0] as number, id])) throw bad('Bu filialda bunday garaj raqami band');
+      run(`UPDATE vehicles SET branch_id=?, garage_no=?, plate=?, model=?, category_id=?, zone_id=?, norm_basis=?,
              power_type=?, serial_no=?, made_year=?, fuel_type_id=?, tank_capacity=?, norm_per_100km=?,
              winter_pct=?, norm_engine_hour=?, norm_per_ton_km=?, init_odometer=?, init_hours=?,
              init_fuel=?, active=?, notes=? WHERE id=?`, [...v, id]);
@@ -300,6 +323,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
     if (method === 'GET') {
       const where: string[] = [];
       const params: any[] = [];
+      pushBranch(where);
       if (q.get('active') === '1') where.push('active = 1');
       const search = str(q.get('q'));
       if (search) { where.push('(full_name LIKE ? OR tab_no LIKE ?)'); params.push(`%${search}%`, `%${search}%`); }
@@ -308,19 +332,19 @@ export async function localRequest(method: string, url: string, body?: any): Pro
     }
     const driverBody = () => {
       if (!str(b.full_name)) throw bad('F.I.Sh. to\'ldirilishi shart');
-      return [str(b.full_name), str(b.tab_no), str(b.license_no), str(b.phone), str(b.class),
+      return [branchForInsert(), str(b.full_name), str(b.tab_no), str(b.license_no), str(b.phone), str(b.class),
               str(b.position) || 'driver', str(b.apron_permit), str(b.permit_until) || null,
               bool(b.active ?? 1)];
     };
     if (method === 'POST') {
-      const res = run(`INSERT INTO drivers (full_name, tab_no, license_no, phone, class, position,
-                         apron_permit, permit_until, active) VALUES (?,?,?,?,?,?,?,?,?)`, driverBody());
+      const res = run(`INSERT INTO drivers (branch_id, full_name, tab_no, license_no, phone, class, position,
+                         apron_permit, permit_until, active) VALUES (?,?,?,?,?,?,?,?,?,?)`, driverBody());
       return get('SELECT * FROM drivers WHERE id = ?', [res.lastInsertRowid]);
     }
     if (method === 'PUT' && seg.length === 2) {
       const id = Number(seg[1]);
       if (!get('SELECT id FROM drivers WHERE id = ?', [id])) throw notFound();
-      run(`UPDATE drivers SET full_name=?, tab_no=?, license_no=?, phone=?, class=?, position=?,
+      run(`UPDATE drivers SET branch_id=?, full_name=?, tab_no=?, license_no=?, phone=?, class=?, position=?,
              apron_permit=?, permit_until=?, active=? WHERE id=?`, [...driverBody(), id]);
       return get('SELECT * FROM drivers WHERE id = ?', [id]);
     }
@@ -357,7 +381,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
 
   // --------------------------- Yo'l varaqalari ---------------------------
   if (seg[0] === 'waybills') {
-    if (path === '/waybills/next-number') return { number: nextNumber() };
+    if (path === '/waybills/next-number') return { number: nextNumber(BR() ?? 1) };
     if (path === '/waybills/meta/period') return monthRange();
 
     if (path === '/waybills/defaults') {
@@ -366,7 +390,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const org = get<{ winter_months: string }>('SELECT winter_months FROM org WHERE id = 1');
       const d = str(q.get('date')) || today();
       return {
-        number: nextNumber(), odo_start: v.odometer, hours_start: v.hour_meter,
+        number: nextNumber(v.branch_id), odo_start: v.odometer, hours_start: v.hour_meter,
         fuel_start: v.fuel_balance,
         norm_per_100km: v.norm_per_100km, norm_engine_hour: v.norm_engine_hour,
         norm_per_ton_km: v.norm_per_ton_km, winter_pct: v.winter_pct,
@@ -378,6 +402,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
     if (method === 'GET' && seg.length === 1) {
       const where: string[] = [];
       const params: any[] = [];
+      pushBranch(where);
       if (q.get('from')) { where.push('date_from >= ?'); params.push(q.get('from')!); }
       if (q.get('to')) { where.push('date_from <= ?'); params.push(q.get('to')!); }
       if (q.get('vehicle_id')) { where.push('vehicle_id = ?'); params.push(Number(q.get('vehicle_id'))); }
@@ -426,18 +451,22 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       if (!vehicle) throw bad('Avtomobil tanlanmagan');
       const driver = get<any>('SELECT * FROM drivers WHERE id = ?', [Number(b.driver_id)]);
       if (!driver) throw bad('Haydovchi tanlanmagan');
-      const number = str(b.number) || nextNumber();
-      if (get('SELECT id FROM waybills WHERE number = ?', [number])) throw bad(`№ ${number} varaqa allaqachon mavjud`);
+      if (driver.branch_id !== vehicle.branch_id) throw bad('Haydovchi boshqa filialga tegishli');
+      const branchId = vehicle.branch_id;          // varaqa texnikaning filialiga tegishli
+      const number = str(b.number) || nextNumber(branchId);
+      if (get('SELECT id FROM waybills WHERE number = ? AND branch_id = ?', [number, branchId])) {
+        throw bad(`Bu filialda № ${number} varaqa allaqachon mavjud`);
+      }
       const f = baseFields(vehicle);
       const status = ['draft', 'issued'].includes(b.status) ? b.status : 'issued';
 
       const id = tx(() => {
         const res = run(
-          `INSERT INTO waybills (number, date_from, date_to, vehicle_id, driver_id, status,
+          `INSERT INTO waybills (branch_id, number, date_from, date_to, vehicle_id, driver_id, status,
              odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
              norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, notes, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
-          [number, f.date_from, f.date_to, vehicle.id, driver.id, status,
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+          [branchId, number, f.date_from, f.date_to, vehicle.id, driver.id, status,
            f.odo_start, f.hours_start, f.fuel_start, f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
            f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes]);
         saveRoutes(res.lastInsertRowid, b.routes);
@@ -456,7 +485,8 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const driver = get<any>('SELECT * FROM drivers WHERE id = ?', [Number(b.driver_id ?? cur.driver_id)]);
       if (!driver) throw bad('Haydovchi topilmadi');
       const number = str(b.number) || cur.number;
-      if (get('SELECT id FROM waybills WHERE number = ? AND id <> ?', [number, id])) throw bad(`№ ${number} varaqa allaqachon mavjud`);
+      if (get('SELECT id FROM waybills WHERE number = ? AND branch_id = ? AND id <> ?',
+              [number, cur.branch_id, id])) throw bad(`Bu filialda № ${number} varaqa allaqachon mavjud`);
 
       const f = baseFields(vehicle);
       const odo_end = optNum(b.odo_end);
@@ -544,6 +574,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
     if (method === 'GET' && seg.length === 1) {
       const where: string[] = [];
       const params: any[] = [];
+      pushBranch(where, 'fi.branch_id');
       if (q.get('from')) { where.push('fi.date >= ?'); params.push(q.get('from')!); }
       if (q.get('to')) { where.push('fi.date <= ?'); params.push(q.get('to')!); }
       if (q.get('vehicle_id')) { where.push('fi.vehicle_id = ?'); params.push(Number(q.get('vehicle_id'))); }
@@ -595,16 +626,17 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const date = str(b.date);
       if (!date) throw bad('Sana ko\'rsatilishi shart');
 
-      return [date, vehicle.id, driver_id, waybill_id, fuel_type_id, r2(liters), r2(price), r2(liters * price),
+      return [vehicle.branch_id, date, vehicle.id, driver_id, waybill_id, fuel_type_id,
+              r2(liters), r2(price), r2(liters * price),
               source, str(b.station), str(b.doc_no), str(b.notes)];
     };
 
     if (method === 'POST' && seg.length === 1) {
       const f = fuelBody();
-      const res = run(`INSERT INTO fuel_issues (date, vehicle_id, driver_id, waybill_id, fuel_type_id,
+      const res = run(`INSERT INTO fuel_issues (branch_id, date, vehicle_id, driver_id, waybill_id, fuel_type_id,
           liters, price, amount, source, station, doc_no, notes, created_by)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,1)`, f);
-      recalcVehicle(f[1] as number);
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)`, f);
+      recalcVehicle(f[2] as number);
       return get(`${FUEL_SELECT} WHERE fi.id = ?`, [res.lastInsertRowid]);
     }
 
@@ -613,10 +645,10 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const cur = get<any>('SELECT * FROM fuel_issues WHERE id = ?', [id]);
       if (!cur) throw notFound();
       const f = fuelBody();
-      run(`UPDATE fuel_issues SET date=?, vehicle_id=?, driver_id=?, waybill_id=?, fuel_type_id=?,
+      run(`UPDATE fuel_issues SET branch_id=?, date=?, vehicle_id=?, driver_id=?, waybill_id=?, fuel_type_id=?,
              liters=?, price=?, amount=?, source=?, station=?, doc_no=?, notes=? WHERE id=?`, [...f, id]);
-      recalcVehicle(f[1] as number);
-      if (cur.vehicle_id !== f[1]) recalcVehicle(cur.vehicle_id);
+      recalcVehicle(f[2] as number);
+      if (cur.vehicle_id !== f[2]) recalcVehicle(cur.vehicle_id);
       return get(`${FUEL_SELECT} WHERE fi.id = ?`, [id]);
     }
 
@@ -638,7 +670,7 @@ export async function localRequest(method: string, url: string, body?: any): Pro
 
 // ========================== Hisobot so'rovlari ==========================
 const WB_AGG = (groupBy: string) => `
-  SELECT vehicle_id, driver_id, category_id, zone_code,
+  SELECT vehicle_id, driver_id, category_id, zone_code, branch_id,
          COUNT(*) AS waybills,
          COALESCE(SUM(distance_km),0)    AS distance_km,
          COALESCE(SUM(worked_hours),0)   AS engine_hours,
@@ -650,12 +682,12 @@ const WB_AGG = (groupBy: string) => `
          COALESCE(SUM(norm_liters),0)    AS norm_liters,
          COALESCE(SUM(fact_liters),0)    AS fact_liters
     FROM v_waybill_calc
-   WHERE status = 'closed' AND date_from BETWEEN ? AND ?
+   WHERE status = 'closed' AND date_from BETWEEN ? AND ? ${AND_B()}
    GROUP BY ${groupBy}`;
 
-const FUEL_AGG = `
+const FUEL_AGG = () => `
   SELECT vehicle_id, COALESCE(SUM(liters),0) AS issued_liters, COALESCE(SUM(amount),0) AS issued_amount
-    FROM fuel_issues WHERE date BETWEEN ? AND ? GROUP BY vehicle_id`;
+    FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()} GROUP BY vehicle_id`;
 
 function sumRows(rows: any[]) {
   const keys = ['waybills', 'distance_km', 'engine_hours', 'norm_liters', 'fact_liters',
@@ -699,8 +731,9 @@ function reports(kind: string, q: URLSearchParams) {
          LEFT JOIN equipment_categories ec ON ec.id = v.category_id
          LEFT JOIN zones z ON z.id = v.zone_id
          LEFT JOIN (${WB_AGG('vehicle_id')}) w ON w.vehicle_id = v.id
-         LEFT JOIN (${FUEL_AGG}) f ON f.vehicle_id = v.id
-        WHERE COALESCE(w.waybills,0) > 0 OR COALESCE(f.issued_liters,0) > 0 OR v.active = 1
+         LEFT JOIN (${FUEL_AGG()}) f ON f.vehicle_id = v.id
+        WHERE (COALESCE(w.waybills,0) > 0 OR COALESCE(f.issued_liters,0) > 0 OR v.active = 1)
+          ${AND_B('v.branch_id')}
         ORDER BY ec.group_code, v.garage_no`,
       [from, to, from, to]);
     return { from, to, rows, totals: sumRows(rows) };
@@ -709,7 +742,7 @@ function reports(kind: string, q: URLSearchParams) {
   if (kind === 'categories') {
     const rows = all(
       `SELECT ec.id, ec.code, ec.name_uz, ec.name_ru, ec.group_code, ec.norm_basis,
-              (SELECT COUNT(*) FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1) AS units,
+              (SELECT COUNT(*) FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1 ${AND_B('v.branch_id')}) AS units,
               COALESCE(w.waybills,0) AS waybills, COALESCE(w.distance_km,0) AS distance_km,
               COALESCE(w.engine_hours,0) AS engine_hours, COALESCE(w.flights,0) AS flights,
               COALESCE(w.cargo_ton,0) AS cargo_ton,
@@ -718,7 +751,7 @@ function reports(kind: string, q: URLSearchParams) {
          FROM equipment_categories ec
          LEFT JOIN (${WB_AGG('category_id')}) w ON w.category_id = ec.id
         WHERE COALESCE(w.waybills,0) > 0
-           OR EXISTS (SELECT 1 FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1)
+           OR EXISTS (SELECT 1 FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1 ${AND_B('v.branch_id')})
         ORDER BY ec.group_code, COALESCE(w.fact_liters,0) DESC, ec.name_uz`,
       [from, to]);
     return { from, to, rows, totals: sumRows(rows) };
@@ -739,7 +772,7 @@ function reports(kind: string, q: URLSearchParams) {
               COALESCE(SUM(fact_liters),0) AS fact_liters,
               ROUND(COALESCE(SUM(fact_liters),0) - COALESCE(SUM(norm_liters),0), 2) AS deviation
          FROM v_waybill_calc
-        WHERE status = 'closed' AND date_from BETWEEN ? AND ?
+        WHERE status = 'closed' AND date_from BETWEEN ? AND ? ${AND_B()}
         GROUP BY zone_code ORDER BY fact_liters DESC`,
       [from, to]);
     return { from, to, rows, totals: sumRows(rows) };
@@ -756,7 +789,7 @@ function reports(kind: string, q: URLSearchParams) {
          JOIN waybills w ON w.id = r.waybill_id
          JOIN v_waybill_calc c ON c.id = w.id
          LEFT JOIN service_types st ON st.id = r.service_type_id
-        WHERE TRIM(r.flight_no) <> '' AND w.date_from BETWEEN ? AND ?
+        WHERE TRIM(r.flight_no) <> '' AND w.date_from BETWEEN ? AND ? ${AND_B('w.branch_id')}
         ORDER BY w.date_from DESC, r.flight_no, r.seq LIMIT 500`,
       [from, to]);
     return {
@@ -781,7 +814,7 @@ function reports(kind: string, q: URLSearchParams) {
               ROUND(COALESCE(w.fact_liters,0) - COALESCE(w.norm_liters,0), 2) AS deviation
          FROM drivers d
          LEFT JOIN (${WB_AGG('driver_id')}) w ON w.driver_id = d.id
-        WHERE COALESCE(w.waybills,0) > 0 OR d.active = 1
+        WHERE (COALESCE(w.waybills,0) > 0 OR d.active = 1) ${AND_B('d.branch_id')}
         ORDER BY d.full_name`, [from, to]);
     return { from, to, rows, totals: sumRows(rows) };
   }
@@ -809,21 +842,21 @@ function reports(kind: string, q: URLSearchParams) {
               (SELECT COUNT(*) FROM waybills w
                 WHERE w.status='closed' AND substr(w.date_from,1,7) = ? || '-' || m.month) AS waybills,
               (SELECT COALESCE(SUM(distance_km),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS distance_km,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS distance_km,
               (SELECT COALESCE(SUM(worked_hours),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS engine_hours,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS engine_hours,
               (SELECT COALESCE(SUM(flights_served),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS flights,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS flights,
               (SELECT COALESCE(SUM(cargo_ton),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS cargo_ton,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS cargo_ton,
               (SELECT COALESCE(SUM(norm_liters),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS norm_liters,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS norm_liters,
               (SELECT COALESCE(SUM(fact_liters),0) FROM v_waybill_calc c
-                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS fact_liters,
+                WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B('c.branch_id')}) AS fact_liters,
               (SELECT COALESCE(SUM(liters),0) FROM fuel_issues f
-                WHERE substr(f.date,1,7) = ? || '-' || m.month) AS issued_liters,
+                WHERE substr(f.date,1,7) = ? || '-' || m.month ${AND_B('f.branch_id')}) AS issued_liters,
               (SELECT COALESCE(SUM(amount),0) FROM fuel_issues f
-                WHERE substr(f.date,1,7) = ? || '-' || m.month) AS issued_amount
+                WHERE substr(f.date,1,7) = ? || '-' || m.month ${AND_B('f.branch_id')}) AS issued_amount
          FROM m ORDER BY m.month`,
       Array(9).fill(year)
     ).map((r) => ({ ...r, deviation: r2(r.fact_liters - r.norm_liters) }));
@@ -834,24 +867,24 @@ function reports(kind: string, q: URLSearchParams) {
     const { from: mFrom, to: mTo } = monthRange();
     const stats = get(
       `SELECT
-         (SELECT COUNT(*) FROM vehicles WHERE active = 1) AS vehicles,
-         (SELECT COUNT(*) FROM drivers  WHERE active = 1) AS drivers,
-         (SELECT COUNT(*) FROM waybills WHERE status <> 'closed') AS open_waybills,
-         (SELECT COUNT(*) FROM waybills WHERE date_from BETWEEN ? AND ?) AS month_waybills,
-         (SELECT COALESCE(SUM(liters),0) FROM fuel_issues WHERE date BETWEEN ? AND ?) AS month_liters,
-         (SELECT COALESCE(SUM(amount),0) FROM fuel_issues WHERE date BETWEEN ? AND ?) AS month_amount,
+         (SELECT COUNT(*) FROM vehicles WHERE active = 1 ${AND_B()}) AS vehicles,
+         (SELECT COUNT(*) FROM drivers  WHERE active = 1 ${AND_B()}) AS drivers,
+         (SELECT COUNT(*) FROM waybills WHERE status <> 'closed' ${AND_B()}) AS open_waybills,
+         (SELECT COUNT(*) FROM waybills WHERE date_from BETWEEN ? AND ? ${AND_B()}) AS month_waybills,
+         (SELECT COALESCE(SUM(liters),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()}) AS month_liters,
+         (SELECT COALESCE(SUM(amount),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()}) AS month_amount,
          (SELECT COALESCE(SUM(distance_km),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_distance,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_distance,
          (SELECT COALESCE(SUM(worked_hours),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_hours,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_hours,
          (SELECT COALESCE(SUM(flights_served),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_flights,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_flights,
          (SELECT COALESCE(SUM(cargo_ton),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_cargo,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_cargo,
          (SELECT COALESCE(SUM(uld_count),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_uld,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_uld,
          (SELECT COALESCE(SUM(fact_liters),0) - COALESCE(SUM(norm_liters),0) FROM v_waybill_calc
-           WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_deviation`,
+           WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_deviation`,
       Array(9).fill([mFrom, mTo]).flat());
 
     return {
@@ -859,7 +892,7 @@ function reports(kind: string, q: URLSearchParams) {
       stats,
       openWaybills: all(`SELECT id, number, date_from, garage_no, plate, model, driver_name, status,
                                 category_name_uz, category_name_ru
-                           FROM v_waybill_calc WHERE status <> 'closed'
+                           FROM v_waybill_calc WHERE status <> 'closed' ${AND_B()}
                           ORDER BY date_from DESC LIMIT 10`),
       byGroup: all(
         `SELECT COALESCE(ec.group_code, 'road') AS group_code,
@@ -871,21 +904,21 @@ function reports(kind: string, q: URLSearchParams) {
            LEFT JOIN equipment_categories ec ON ec.id = v.category_id
            LEFT JOIN v_waybill_calc w ON w.vehicle_id = v.id AND w.status = 'closed'
                                      AND w.date_from BETWEEN ? AND ?
-          WHERE v.active = 1
+          WHERE v.active = 1 ${AND_B('v.branch_id')}
           GROUP BY COALESCE(ec.group_code, 'road')
           ORDER BY fact_liters DESC`, [mFrom, mTo]),
       lowFuel: all(`SELECT v.id, v.garage_no, v.plate, v.model, v.fuel_balance, v.tank_capacity,
                            ROUND(v.fuel_balance / NULLIF(v.tank_capacity,0) * 100, 0) AS pct
-                      FROM vehicles v WHERE v.active = 1 AND v.tank_capacity > 0
+                      FROM vehicles v WHERE v.active = 1 AND v.tank_capacity > 0 ${AND_B('v.branch_id')}
                        AND v.power_type <> 'electric'
                        AND v.fuel_balance < v.tank_capacity * 0.15
                      ORDER BY pct LIMIT 10`),
       daily: all(`SELECT date, COALESCE(SUM(liters),0) AS liters FROM fuel_issues
-                   WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date`, [mFrom, mTo]),
+                   WHERE date BETWEEN ? AND ? ${AND_B()} GROUP BY date ORDER BY date`, [mFrom, mTo]),
       topDeviation: all(`SELECT garage_no, plate, number, date_from,
                                 ROUND(fact_liters - norm_liters, 2) AS deviation
                            FROM v_waybill_calc
-                          WHERE status='closed' AND fact_liters IS NOT NULL AND date_from BETWEEN ? AND ?
+                          WHERE status='closed' AND fact_liters IS NOT NULL AND date_from BETWEEN ? AND ? ${AND_B()}
                           ORDER BY ABS(fact_liters - norm_liters) DESC LIMIT 5`, [mFrom, mTo]),
     };
   }
