@@ -161,10 +161,21 @@ CREATE TABLE IF NOT EXISTS vehicles (
   winter_pct       REAL NOT NULL DEFAULT 0,       -- qishki ustama, %
   norm_engine_hour REAL NOT NULL DEFAULT 0,       -- motosoat normasi, l/soat
   norm_per_ton_km  REAL NOT NULL DEFAULT 0,       -- yuk normasi, l/100 t·km
+
+  -- ---------------- Ikkinchi energiya manbai (gibrid texnika) ----------------
+  --  Gibridda ikkita mustaqil manba bor: yoqilg'i baki va batareya.
+  --  Ularning normasi, qoldig'i va hisobi alohida yuritiladi —
+  --  litr bilan kVt·soatni qo'shib bo'lmaydi.
+  --  fuel_type2_id NULL bo'lsa — texnika bitta manbada ishlaydi.
+  fuel_type2_id     INTEGER REFERENCES fuel_types(id),
+  tank_capacity2    REAL NOT NULL DEFAULT 0,      -- batareya sig'imi, kVt·soat
+  norm2_per_100km   REAL NOT NULL DEFAULT 0,      -- kVt·soat / 100 km
+  norm2_engine_hour REAL NOT NULL DEFAULT 0,      -- kVt·soat / motosoat
   -- Boshlang'ich holat (tizimga kiritilgan paytdagi) — qo'lda kiritiladi:
   init_odometer    REAL NOT NULL DEFAULT 0,
   init_hours       REAL NOT NULL DEFAULT 0,       -- boshlang'ich motosoat hisoblagichi
   init_fuel        REAL NOT NULL DEFAULT 0,
+  init_fuel2       REAL NOT NULL DEFAULT 0,       -- batareyadagi boshlang'ich zaryad
   -- Quyidagilar HOSILA qiymat: recalcVehicle() qayta hisoblaydi.
   --   odometer     = init_odometer + Σ(yopilgan varaqalar masofasi)
   --   hour_meter   = init_hours    + Σ(yopilgan varaqalar motosoati)
@@ -172,6 +183,7 @@ CREATE TABLE IF NOT EXISTS vehicles (
   odometer         REAL NOT NULL DEFAULT 0,       -- joriy spidometr
   hour_meter       REAL NOT NULL DEFAULT 0,       -- joriy motosoat
   fuel_balance     REAL NOT NULL DEFAULT 0,       -- bakdagi joriy qoldiq, l
+  fuel_balance2    REAL NOT NULL DEFAULT 0,       -- batareyadagi joriy zaryad, kVt·soat
   active           INTEGER NOT NULL DEFAULT 1,
   notes            TEXT NOT NULL DEFAULT ''
 );
@@ -216,6 +228,9 @@ CREATE TABLE IF NOT EXISTS waybills (
   hours_end      REAL,                            -- smena oxiridagi motosoat hisoblagichi
   fuel_start     REAL    NOT NULL DEFAULT 0,      -- chiqishdagi bak qoldig'i
   fuel_end       REAL,                            -- qaytgandagi bak qoldig'i
+  -- Gibrid texnika uchun ikkinchi manba ko'rsatkichlari
+  fuel2_start    REAL    NOT NULL DEFAULT 0,
+  fuel2_end      REAL,
   -- Motosoat: hisoblagich ko'rsatilgan bo'lsa (hours_end − hours_start) ustun turadi
   engine_hours   REAL    NOT NULL DEFAULT 0,
   cargo_ton_km   REAL    NOT NULL DEFAULT 0,      -- bajarilgan t·km
@@ -227,6 +242,8 @@ CREATE TABLE IF NOT EXISTS waybills (
   norm_per_100km   REAL NOT NULL DEFAULT 0,
   norm_engine_hour REAL NOT NULL DEFAULT 0,
   norm_per_ton_km  REAL NOT NULL DEFAULT 0,
+  norm2_per_100km   REAL NOT NULL DEFAULT 0,      -- ikkinchi manba normasi
+  norm2_engine_hour REAL NOT NULL DEFAULT 0,
   winter_pct       REAL NOT NULL DEFAULT 0,
   task           TEXT    NOT NULL DEFAULT '',     -- topshiriq
   notes          TEXT    NOT NULL DEFAULT '',
@@ -332,8 +349,12 @@ SELECT
   br.code AS branch_code, br.name_uz AS branch_name_uz, br.name_ru AS branch_name_ru,
   ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
   ft.unit_uz, ft.unit_ru,
+  v.fuel_type2_id,
+  ft2.code AS fuel2_code, ft2.name_uz AS fuel2_name_uz, ft2.name_ru AS fuel2_name_ru,
+  ft2.unit_uz AS unit2_uz, ft2.unit_ru AS unit2_ru,
   d.full_name AS driver_name, d.tab_no, d.position,
   COALESCE(fi.liters, 0) AS fuel_issued,
+  COALESCE(fi.liters2, 0) AS fuel2_issued,
   COALESCE(op.flights, 0)    AS flights_served,
   COALESCE(op.cargo_ton, 0)  AS cargo_ton,
   COALESCE(op.uld_count, 0)  AS uld_count,
@@ -354,17 +375,37 @@ SELECT
     ) * (1 + CASE WHEN w.winter = 1 THEN w.winter_pct / 100.0 ELSE 0 END)
   , 2) AS norm_liters,
   CASE WHEN w.fuel_end IS NULL THEN NULL
-       ELSE ROUND(w.fuel_start + COALESCE(fi.liters, 0) - w.fuel_end, 2) END AS fact_liters
+       ELSE ROUND(w.fuel_start + COALESCE(fi.liters, 0) - w.fuel_end, 2) END AS fact_liters,
+  -- Ikkinchi manba (gibrid): o'z normasi, o'z fakti. Birinchisi bilan qo'shilmaydi.
+  CASE WHEN v.fuel_type2_id IS NULL THEN NULL ELSE ROUND(
+    (
+      CASE WHEN w.odo_end IS NULL THEN 0
+           ELSE (w.odo_end - w.odo_start) / 100.0 * w.norm2_per_100km END
+      + CASE WHEN w.hours_end IS NOT NULL THEN MAX(0, w.hours_end - w.hours_start)
+             ELSE w.engine_hours END * w.norm2_engine_hour
+    ) * (1 + CASE WHEN w.winter = 1 THEN w.winter_pct / 100.0 ELSE 0 END)
+  , 2) END AS norm2_liters,
+  CASE WHEN v.fuel_type2_id IS NULL OR w.fuel2_end IS NULL THEN NULL
+       ELSE ROUND(w.fuel2_start + COALESCE(fi.liters2, 0) - w.fuel2_end, 2) END AS fact2_liters
 FROM waybills w
 JOIN vehicles   v  ON v.id = w.vehicle_id
 JOIN fuel_types ft ON ft.id = v.fuel_type_id
+LEFT JOIN fuel_types ft2 ON ft2.id = v.fuel_type2_id
 JOIN drivers    d  ON d.id = w.driver_id
 LEFT JOIN equipment_categories ec ON ec.id = v.category_id
 LEFT JOIN zones z ON z.id = COALESCE(w.zone_id, v.zone_id)
 LEFT JOIN branches br ON br.id = w.branch_id
 LEFT JOIN (
-  SELECT waybill_id, SUM(liters) AS liters
-  FROM fuel_issues WHERE waybill_id IS NOT NULL GROUP BY waybill_id
+  -- Quyish yozuvi qaysi manbaga tushishi yoqilg'i turiga qarab aniqlanadi:
+  -- texnikaning ikkinchi turiga teng bo'lsa — batareyaga, aks holda bakka.
+  SELECT fi2.waybill_id,
+         SUM(CASE WHEN v2.fuel_type2_id IS NOT NULL AND fi2.fuel_type_id = v2.fuel_type2_id
+                  THEN 0 ELSE fi2.liters END) AS liters,
+         SUM(CASE WHEN v2.fuel_type2_id IS NOT NULL AND fi2.fuel_type_id = v2.fuel_type2_id
+                  THEN fi2.liters ELSE 0 END) AS liters2
+  FROM fuel_issues fi2
+  JOIN vehicles v2 ON v2.id = fi2.vehicle_id
+  WHERE fi2.waybill_id IS NOT NULL GROUP BY fi2.waybill_id
 ) fi ON fi.waybill_id = w.id
 LEFT JOIN (
   SELECT waybill_id,

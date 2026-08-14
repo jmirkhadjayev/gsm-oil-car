@@ -10,6 +10,7 @@ type Data = {
   stats: Record<string, number>;
   openWaybills: any[];
   lowFuel: any[];
+  lowCharge: any[];
   daily: { date: string; liters: number }[];
   topDeviation: any[];
   byGroup: any[];
@@ -31,7 +32,8 @@ export default function Dashboard() {
       <div className="grid cols-4" style={{ marginBottom: 16 }}>
         <Stat label={t('statMonthFlights')} value={ni(s.month_flights)} />
         <Stat label={t('statMonthHours')} value={nf(s.month_hours, 1)} unit="m/s" />
-        <Stat label={t('statMonthLiters')} value={nf(s.month_liters)} unit="l" />
+        <Stat label={t('statMonthLiters')} value={nf(s.month_liters)} unit="l"
+              sub={s.month_energy ? `⚡ ${nf(s.month_energy)} kVt·s` : undefined} />
         <Stat
           label={t('statDeviation')}
           value={`${s.month_deviation > 0 ? '+' : ''}${nf(s.month_deviation)}`}
@@ -147,7 +149,7 @@ export default function Dashboard() {
         <div className="card">
           <div className="card-head"><h2>{t('lowFuel')}</h2></div>
           <div className="card-body tight">
-            {data.lowFuel.length === 0 ? <Empty /> : (
+            {data.lowFuel.length === 0 && !(data.lowCharge ?? []).length ? <Empty /> : (
               <div className="table-wrap">
                 <table className="tbl">
                   <thead>
@@ -159,6 +161,14 @@ export default function Dashboard() {
                         <td>{v.garage_no} · {v.model}</td>
                         <td className="num">{nf(v.fuel_balance)} / {ni(v.tank_capacity)} l</td>
                         <td className="num"><span className="badge amber">{ni(v.pct)}%</span></td>
+                      </tr>
+                    ))}
+                    {/* Gibrid/elektr texnikada batareya zaryadi past */}
+                    {(data.lowCharge ?? []).map((v) => (
+                      <tr key={`c${v.id}`}>
+                        <td>⚡ {v.garage_no} · {v.model}</td>
+                        <td className="num">{nf(v.fuel_balance2)} / {ni(v.tank_capacity2)}</td>
+                        <td className="num"><span className="badge volt">{ni(v.pct)}%</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -201,13 +211,16 @@ export default function Dashboard() {
   );
 }
 
-function Stat({ label, value, unit, tone }: { label: string; value: string; unit?: string; tone?: 'pos' | 'neg' }) {
+function Stat({ label, value, unit, tone, sub }: {
+  label: string; value: string; unit?: string; tone?: 'pos' | 'neg'; sub?: string;
+}) {
   return (
     <div className="stat">
       <div className="stat-label">{label}</div>
       <div className={`stat-value${tone ? ' ' + tone : ''}`}>
         {value}{unit && <span className="stat-unit">{unit}</span>}
       </div>
+      {sub && <div className="volt-sub">{sub}</div>}
     </div>
   );
 }

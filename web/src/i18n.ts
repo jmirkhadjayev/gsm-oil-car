@@ -292,6 +292,26 @@ const dict = {
   noWaybill: ["Varaqasiz", 'Без листа'],
   tankBalance: ['Bak qoldig\'i', 'Остаток в баке'],
 
+  // --- Gibrid texnika: ikkinchi energiya manbai ---
+  none: ["Yo'q", 'Нет'],
+  hybridSource: ["Ikkinchi manba (gibrid)", 'Второй источник (гибрид)'],
+  hybridHint: ["Gibrid texnikada ikkita manba alohida hisoblanadi — litr va kVt·soat qo'shilmaydi",
+               'У гибридной техники два источника считаются раздельно — литры и кВт·ч не суммируются'],
+  source2: ["Ikkinchi manba turi", 'Вид второго источника'],
+  capacity2: ["Batareya sig'imi", 'Ёмкость батареи'],
+  norm2_100: ['Norma, 2-manba/100km', 'Норма, 2-й ист./100км'],
+  norm2Hour: ['Norma, 2-manba/soat', 'Норма, 2-й ист./час'],
+  initCharge: ["Boshlang'ich zaryad", 'Начальный заряд'],
+  chargeBalance: ['Zaryad qoldig\'i', 'Остаток заряда'],
+  chargeStart: ['Chiqishdagi zaryad', 'Заряд при выезде'],
+  chargeEnd: ['Qaytgandagi zaryad', 'Заряд при возврате'],
+  chargeIssued: ['Zaryadlangan', 'Заряжено'],
+  norm2Liters: ["Norma, kVt·s", 'По норме, кВт·ч'],
+  fact2Liters: ['Haqiqiy sarf, kVt·s', 'Факт. расход, кВт·ч'],
+  deviation2: ['Farq, kVt·s', 'Отклонение, кВт·ч'],
+  lowCharge: ['Zaryad kam', 'Низкий заряд'],
+  energy: ['Elektr energiya', 'Электроэнергия'],
+
   // --- Spravochniklar ---
   newVehicle: ['Yangi texnika', 'Новая техника'],
   newDriver: ['Yangi xodim', 'Новый сотрудник'],

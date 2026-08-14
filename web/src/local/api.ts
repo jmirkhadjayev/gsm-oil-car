@@ -2,7 +2,7 @@
 // SQL so'rovlar server versiyasidan o'zgarishsiz olingan — hisob-kitob bir xil bo'lishi uchun.
 import { all, get, run, tx, audit, openDatabase, resetDatabase, exportDatabase, importDatabase } from './db';
 import { seedDemo, seedReference } from './seed';
-import { isWinterDate, monthRange, r2, recalcVehicle, today } from './calc';
+import { isWinterDate, issuedSplit, monthRange, r2, recalcVehicle, today } from './calc';
 
 export class LocalError extends Error {
   status: number;
@@ -65,17 +65,22 @@ const bool = (v: any) => (v === true || v === 1 || v === '1' || v === 'true' ? 1
 const VEHICLE_SELECT = `
   SELECT v.*, ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
          ft.unit_uz, ft.unit_ru, ft.price AS fuel_price,
+         ft2.code AS fuel2_code, ft2.name_uz AS fuel2_name_uz, ft2.name_ru AS fuel2_name_ru,
+         ft2.unit_uz AS unit2_uz, ft2.unit_ru AS unit2_ru, ft2.price AS fuel2_price,
          ec.code AS category_code, ec.group_code,
          ec.name_uz AS category_name_uz, ec.name_ru AS category_name_ru,
          z.code AS zone_code, z.name_uz AS zone_name_uz, z.name_ru AS zone_name_ru
     FROM vehicles v
     JOIN fuel_types ft ON ft.id = v.fuel_type_id
+    LEFT JOIN fuel_types ft2 ON ft2.id = v.fuel_type2_id
     LEFT JOIN equipment_categories ec ON ec.id = v.category_id
     LEFT JOIN zones z ON z.id = v.zone_id`;
 
 const FUEL_SELECT = `
   SELECT fi.*, v.garage_no, v.plate, v.model, d.full_name AS driver_name, w.number AS waybill_number,
-         ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru, ft.unit_uz, ft.unit_ru
+         ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru, ft.unit_uz, ft.unit_ru,
+         CASE WHEN v.fuel_type2_id IS NOT NULL AND fi.fuel_type_id = v.fuel_type2_id
+              THEN 1 ELSE 0 END AS is_second
     FROM fuel_issues fi
     JOIN vehicles v ON v.id = fi.vehicle_id
     JOIN fuel_types ft ON ft.id = fi.fuel_type_id
@@ -88,10 +93,15 @@ function loadWaybill(id: number) {
   const w = get<any>(`${CALC} WHERE id = ?`, [id]);
   if (!w) throw notFound('Yo\'l varaqasi topilmadi');
   w.routes = all('SELECT * FROM waybill_routes WHERE waybill_id = ? ORDER BY seq, id', [id]);
-  w.fuel = all(`SELECT fi.*, ft.code AS fuel_code FROM fuel_issues fi
+  w.fuel = all(`SELECT fi.*, ft.code AS fuel_code, ft.unit_uz, ft.unit_ru,
+                       CASE WHEN v.fuel_type2_id IS NOT NULL AND fi.fuel_type_id = v.fuel_type2_id
+                            THEN 1 ELSE 0 END AS is_second
+                  FROM fuel_issues fi
                   JOIN fuel_types ft ON ft.id = fi.fuel_type_id
+                  JOIN vehicles v ON v.id = fi.vehicle_id
                  WHERE fi.waybill_id = ? ORDER BY fi.date, fi.id`, [id]);
   w.deviation = w.fact_liters == null ? null : r2(w.fact_liters - w.norm_liters);
+  w.deviation2 = w.fact2_liters == null ? null : r2(w.fact2_liters - w.norm2_liters);
   return w;
 }
 
@@ -314,13 +324,24 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const garage_no = str(b.garage_no);
       if (!garage_no) throw bad('Garaj/inventar raqami to\'ldirilishi shart');
       if (!str(b.model)) throw bad('Rusum to\'ldirilishi shart');
+      // Ikkinchi manba tanlansa — texnika gibrid
+      const fuel_type_id = num(b.fuel_type_id);
+      const fuel_type2_id = b.fuel_type2_id ? num(b.fuel_type2_id) : null;
+      if (fuel_type2_id === fuel_type_id) throw bad('Ikkinchi manba turi asosiysidan farq qilishi kerak');
+      const power = fuel_type2_id ? 'hybrid' : (str(b.power_type) || 'diesel');
       return [branchForInsert(), garage_no, str(b.plate) || '—', str(b.model),
               b.category_id ? num(b.category_id) : null, b.zone_id ? num(b.zone_id) : null,
-              str(b.norm_basis) || 'km', str(b.power_type) || 'diesel',
+              str(b.norm_basis) || 'km', power,
               str(b.serial_no), b.made_year ? num(b.made_year) : null,
-              num(b.fuel_type_id), num(b.tank_capacity),
+              fuel_type_id, num(b.tank_capacity),
               num(b.norm_per_100km), num(b.winter_pct), num(b.norm_engine_hour), num(b.norm_per_ton_km),
-              num(b.init_odometer), num(b.init_hours), num(b.init_fuel), bool(b.active ?? 1), str(b.notes)];
+              fuel_type2_id,
+              fuel_type2_id ? num(b.tank_capacity2) : 0,
+              fuel_type2_id ? num(b.norm2_per_100km) : 0,
+              fuel_type2_id ? num(b.norm2_engine_hour) : 0,
+              num(b.init_odometer), num(b.init_hours), num(b.init_fuel),
+              fuel_type2_id ? num(b.init_fuel2) : 0,
+              bool(b.active ?? 1), str(b.notes)];
     };
 
     if (method === 'POST') {
@@ -330,8 +351,10 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       }
       const res = run(`INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis,
           power_type, serial_no, made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct,
-          norm_engine_hour, norm_per_ton_km, init_odometer, init_hours, init_fuel, active, notes)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v);
+          norm_engine_hour, norm_per_ton_km,
+          fuel_type2_id, tank_capacity2, norm2_per_100km, norm2_engine_hour,
+          init_odometer, init_hours, init_fuel, init_fuel2, active, notes)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, v);
       recalcVehicle(res.lastInsertRowid);
       audit(1, 'create', 'vehicle', res.lastInsertRowid);
       return get(`${VEHICLE_SELECT} WHERE v.id = ?`, [res.lastInsertRowid]);
@@ -344,8 +367,9 @@ export async function localRequest(method: string, url: string, body?: any): Pro
               [v[1] as string, v[0] as number, id])) throw bad('Bu filialda bunday garaj raqami band');
       run(`UPDATE vehicles SET branch_id=?, garage_no=?, plate=?, model=?, category_id=?, zone_id=?, norm_basis=?,
              power_type=?, serial_no=?, made_year=?, fuel_type_id=?, tank_capacity=?, norm_per_100km=?,
-             winter_pct=?, norm_engine_hour=?, norm_per_ton_km=?, init_odometer=?, init_hours=?,
-             init_fuel=?, active=?, notes=? WHERE id=?`, [...v, id]);
+             winter_pct=?, norm_engine_hour=?, norm_per_ton_km=?,
+             fuel_type2_id=?, tank_capacity2=?, norm2_per_100km=?, norm2_engine_hour=?,
+             init_odometer=?, init_hours=?, init_fuel=?, init_fuel2=?, active=?, notes=? WHERE id=?`, [...v, id]);
       recalcVehicle(id);
       return get(`${VEHICLE_SELECT} WHERE v.id = ?`, [id]);
     }
@@ -437,6 +461,10 @@ export async function localRequest(method: string, url: string, body?: any): Pro
         norm_per_ton_km: v.norm_per_ton_km, winter_pct: v.winter_pct,
         winter: isWinterDate(d, org?.winter_months),
         norm_basis: v.norm_basis, zone_id: v.zone_id, tank_capacity: v.tank_capacity,
+        // gibrid texnikaning ikkinchi manbai
+        power_type: v.power_type, fuel_type2_id: v.fuel_type2_id ?? null,
+        fuel2_start: v.fuel_balance2, norm2_per_100km: v.norm2_per_100km,
+        norm2_engine_hour: v.norm2_engine_hour, tank_capacity2: v.tank_capacity2,
       };
     }
 
@@ -460,7 +488,11 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const rows = all<any>(
         `${CALC} ${clause} ORDER BY date_from DESC, CAST(number AS INTEGER) DESC, id DESC LIMIT ? OFFSET ?`,
         [...params, limit, offset]
-      ).map((w) => ({ ...w, deviation: w.fact_liters == null ? null : r2(w.fact_liters - w.norm_liters) }));
+      ).map((w) => ({
+        ...w,
+        deviation: w.fact_liters == null ? null : r2(w.fact_liters - w.norm_liters),
+        deviation2: w.fact2_liters == null ? null : r2(w.fact2_liters - w.norm2_liters),
+      }));
       const total = get<{ c: number }>(`SELECT COUNT(*) AS c FROM v_waybill_calc ${clause}`, params)!.c;
       return { rows, total, limit, offset };
     }
@@ -482,6 +514,10 @@ export async function localRequest(method: string, url: string, body?: any): Pro
         norm_per_100km: num(b.norm_per_100km, vehicle.norm_per_100km),
         norm_engine_hour: num(b.norm_engine_hour, vehicle.norm_engine_hour),
         norm_per_ton_km: num(b.norm_per_ton_km, vehicle.norm_per_ton_km),
+        // ikkinchi manba — faqat gibrid texnikada
+        fuel2_start: vehicle.fuel_type2_id ? num(b.fuel2_start) : 0,
+        norm2_per_100km: vehicle.fuel_type2_id ? num(b.norm2_per_100km, vehicle.norm2_per_100km) : 0,
+        norm2_engine_hour: vehicle.fuel_type2_id ? num(b.norm2_engine_hour, vehicle.norm2_engine_hour) : 0,
         winter_pct: num(b.winter_pct, vehicle.winter_pct),
         task: str(b.task), notes: str(b.notes),
       };
@@ -504,12 +540,14 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const id = tx(() => {
         const res = run(
           `INSERT INTO waybills (branch_id, number, date_from, date_to, vehicle_id, driver_id, status,
-             odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
-             norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, notes, created_by)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
+             odo_start, hours_start, fuel_start, fuel2_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
+             norm_per_100km, norm_engine_hour, norm_per_ton_km, norm2_per_100km, norm2_engine_hour,
+             winter_pct, task, notes, created_by)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1)`,
           [branchId, number, f.date_from, f.date_to, vehicle.id, driver.id, status,
-           f.odo_start, f.hours_start, f.fuel_start, f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
-           f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes]);
+           f.odo_start, f.hours_start, f.fuel_start, f.fuel2_start, f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
+           f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.norm2_per_100km, f.norm2_engine_hour,
+           f.winter_pct, f.task, f.notes]);
         saveRoutes(res.lastInsertRowid, b.routes);
         return res.lastInsertRowid;
       });
@@ -539,13 +577,17 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       tx(() => {
         run(`UPDATE waybills SET number=?, date_from=?, date_to=?, vehicle_id=?, driver_id=?,
                odo_start=?, odo_end=?, hours_start=?, hours_end=?, fuel_start=?, fuel_end=?,
+               fuel2_start=?, fuel2_end=?,
                engine_hours=?, cargo_ton_km=?, zone_id=?, shift=?, winter=?,
-               norm_per_100km=?, norm_engine_hour=?, norm_per_ton_km=?, winter_pct=?, task=?, notes=?
+               norm_per_100km=?, norm_engine_hour=?, norm_per_ton_km=?,
+               norm2_per_100km=?, norm2_engine_hour=?, winter_pct=?, task=?, notes=?
              WHERE id=?`,
           [number, f.date_from, f.date_to, vehicle.id, driver.id,
            f.odo_start, odo_end, f.hours_start, hours_end, f.fuel_start, fuel_end,
+           f.fuel2_start, vehicle.fuel_type2_id ? optNum(b.fuel2_end) : null,
            f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
-           f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes, id]);
+           f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km,
+           f.norm2_per_100km, f.norm2_engine_hour, f.winter_pct, f.task, f.notes, id]);
         if (b.routes !== undefined) saveRoutes(id, b.routes);
       });
       recalcVehicle(vehicle.id);
@@ -566,15 +608,28 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       const hours_end = optNum(b.hours_end);
       if (hours_end != null && hours_end < w.hours_start) throw bad('Motosoat hisoblagichi kamayishi mumkin emas');
 
-      const issued = get<{ s: number }>('SELECT COALESCE(SUM(liters),0) AS s FROM fuel_issues WHERE waybill_id = ?', [id])!.s;
-      const available = r2(w.fuel_start + issued);
+      const veh = get<any>('SELECT fuel_type2_id FROM vehicles WHERE id = ?', [w.vehicle_id]);
+      const ft2 = veh?.fuel_type2_id ?? null;
+      const split = issuedSplit(id, ft2);
+      const available = r2(w.fuel_start + split.first);
       if (fuel_end > available + 0.001) {
-        throw bad(`Qaytgandagi qoldiq ${available} l dan oshmasligi kerak (chiqishdagi ${w.fuel_start} + quyilgan ${r2(issued)})`);
+        throw bad(`Qaytgandagi qoldiq ${available} l dan oshmasligi kerak (chiqishdagi ${w.fuel_start} + quyilgan ${split.first})`);
       }
 
-      run(`UPDATE waybills SET odo_end=?, hours_end=?, fuel_end=?, engine_hours=?, cargo_ton_km=?,
+      // Gibrid: ikkinchi manba qoldig'i ham yopilishda kiritiladi
+      let fuel2_end: number | null = null;
+      if (ft2) {
+        fuel2_end = num(b.fuel2_end);
+        const available2 = r2((w.fuel2_start || 0) + split.second);
+        if (fuel2_end > available2 + 0.001) {
+          throw bad(`Qaytgandagi zaryad ${available2} dan oshmasligi kerak (chiqishdagi ${w.fuel2_start || 0} + quyilgan ${split.second})`);
+        }
+      }
+
+      run(`UPDATE waybills SET odo_end=?, hours_end=?, fuel_end=?, fuel2_end=?, engine_hours=?, cargo_ton_km=?,
              status='closed', closed_at=datetime('now'), closed_by=1 WHERE id=?`,
-        [odo_end, hours_end, fuel_end, num(b.engine_hours, w.engine_hours), num(b.cargo_ton_km, w.cargo_ton_km), id]);
+        [odo_end, hours_end, fuel_end, fuel2_end,
+         num(b.engine_hours, w.engine_hours), num(b.cargo_ton_km, w.cargo_ton_km), id]);
       recalcVehicle(w.vehicle_id);
       audit(1, 'close', 'waybill', id, `№${w.number}`);
       return loadWaybill(id);
@@ -646,6 +701,11 @@ export async function localRequest(method: string, url: string, body?: any): Pro
       if (!vehicle) throw bad('Avtomobil tanlanmagan');
       const fuel_type_id = Number(b.fuel_type_id) || vehicle.fuel_type_id;
       if (!get('SELECT id FROM fuel_types WHERE id = ?', [fuel_type_id])) throw bad('Yoqilg\'i turi topilmadi');
+      // Gibridda yozuv aynan shu texnikaning ikki manbasidan biriga tegishli bo'lishi shart
+      if (vehicle.fuel_type2_id &&
+          fuel_type_id !== vehicle.fuel_type_id && fuel_type_id !== vehicle.fuel_type2_id) {
+        throw bad('Gibrid texnikada faqat uning ikki manbasidan biri tanlanadi');
+      }
 
       let driver_id: number | null = b.driver_id ? Number(b.driver_id) : null;
       if (driver_id && !get('SELECT id FROM drivers WHERE id = ?', [driver_id])) driver_id = null;
@@ -721,18 +781,27 @@ const WB_AGG = (groupBy: string) => `
          COALESCE(SUM(uld_count),0)      AS uld_count,
          COALESCE(SUM(pax_count),0)      AS pax_count,
          COALESCE(SUM(norm_liters),0)    AS norm_liters,
-         COALESCE(SUM(fact_liters),0)    AS fact_liters
+         COALESCE(SUM(fact_liters),0)    AS fact_liters,
+         COALESCE(SUM(norm2_liters),0)   AS norm2_liters,
+         COALESCE(SUM(fact2_liters),0)   AS fact2_liters
     FROM v_waybill_calc
    WHERE status = 'closed' AND date_from BETWEEN ? AND ? ${AND_B()}
    GROUP BY ${groupBy}`;
 
+/** Elektr energiya (kVt·soat) litr bilan qo'shilmaydi — alohida ustunga ajratiladi. */
+const ENERGY_TYPES = `(SELECT id FROM fuel_types WHERE unit_uz = 'kVt·s')`;
+
 const FUEL_AGG = () => `
-  SELECT vehicle_id, COALESCE(SUM(liters),0) AS issued_liters, COALESCE(SUM(amount),0) AS issued_amount
+  SELECT vehicle_id,
+         COALESCE(SUM(CASE WHEN fuel_type_id IN ${ENERGY_TYPES} THEN 0 ELSE liters END),0) AS issued_liters,
+         COALESCE(SUM(CASE WHEN fuel_type_id IN ${ENERGY_TYPES} THEN liters ELSE 0 END),0) AS issued_energy,
+         COALESCE(SUM(amount),0) AS issued_amount
     FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()} GROUP BY vehicle_id`;
 
 function sumRows(rows: any[]) {
   const keys = ['waybills', 'distance_km', 'engine_hours', 'norm_liters', 'fact_liters',
-                'deviation', 'issued_liters', 'issued_amount', 'records',
+                'deviation', 'norm2_liters', 'fact2_liters', 'deviation2',
+                'issued_liters', 'issued_energy', 'issued_amount', 'records',
                 'flights', 'cargo_ton', 'uld_count', 'pax_count', 'units'];
   const out: Record<string, number> = {};
   for (const k of keys) {
@@ -751,24 +820,30 @@ function reports(kind: string, q: URLSearchParams) {
   if (kind === 'vehicles') {
     const rows = all(
       `SELECT v.id, v.garage_no, v.plate, v.model, v.fuel_balance, v.odometer, v.hour_meter,
-              v.norm_basis, v.power_type,
+              v.norm_basis, v.power_type, v.fuel_balance2, v.fuel_type2_id,
               ec.code AS category_code, ec.group_code,
               ec.name_uz AS category_name_uz, ec.name_ru AS category_name_ru,
               z.name_uz AS zone_name_uz, z.name_ru AS zone_name_ru,
               ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
+              ft2.code AS fuel2_code, ft2.unit_uz AS unit2_uz, ft2.unit_ru AS unit2_ru,
               COALESCE(w.waybills,0) AS waybills, COALESCE(w.distance_km,0) AS distance_km,
               COALESCE(w.engine_hours,0) AS engine_hours,
               COALESCE(w.flights,0) AS flights, COALESCE(w.cargo_ton,0) AS cargo_ton,
               COALESCE(w.uld_count,0) AS uld_count,
               COALESCE(w.norm_liters,0) AS norm_liters, COALESCE(w.fact_liters,0) AS fact_liters,
               ROUND(COALESCE(w.fact_liters,0) - COALESCE(w.norm_liters,0), 2) AS deviation,
-              COALESCE(f.issued_liters,0) AS issued_liters, COALESCE(f.issued_amount,0) AS issued_amount,
+              COALESCE(w.norm2_liters,0) AS norm2_liters, COALESCE(w.fact2_liters,0) AS fact2_liters,
+              ROUND(COALESCE(w.fact2_liters,0) - COALESCE(w.norm2_liters,0), 2) AS deviation2,
+              COALESCE(f.issued_liters,0) AS issued_liters,
+              COALESCE(f.issued_energy,0) AS issued_energy,
+              COALESCE(f.issued_amount,0) AS issued_amount,
               CASE WHEN COALESCE(w.distance_km,0) > 0
                    THEN ROUND(COALESCE(w.fact_liters,0) / w.distance_km * 100, 2) END AS fact_per_100km,
               CASE WHEN COALESCE(w.engine_hours,0) > 0
                    THEN ROUND(COALESCE(w.fact_liters,0) / w.engine_hours, 2) END AS fact_per_hour
          FROM vehicles v
          JOIN fuel_types ft ON ft.id = v.fuel_type_id
+         LEFT JOIN fuel_types ft2 ON ft2.id = v.fuel_type2_id
          LEFT JOIN equipment_categories ec ON ec.id = v.category_id
          LEFT JOIN zones z ON z.id = v.zone_id
          LEFT JOIN (${WB_AGG('vehicle_id')}) w ON w.vehicle_id = v.id
@@ -912,7 +987,10 @@ function reports(kind: string, q: URLSearchParams) {
          (SELECT COUNT(*) FROM drivers  WHERE active = 1 ${AND_B()}) AS drivers,
          (SELECT COUNT(*) FROM waybills WHERE status <> 'closed' ${AND_B()}) AS open_waybills,
          (SELECT COUNT(*) FROM waybills WHERE date_from BETWEEN ? AND ? ${AND_B()}) AS month_waybills,
-         (SELECT COALESCE(SUM(liters),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()}) AS month_liters,
+         (SELECT COALESCE(SUM(liters),0) FROM fuel_issues
+           WHERE date BETWEEN ? AND ? AND fuel_type_id NOT IN ${ENERGY_TYPES} ${AND_B()}) AS month_liters,
+         (SELECT COALESCE(SUM(liters),0) FROM fuel_issues
+           WHERE date BETWEEN ? AND ? AND fuel_type_id IN ${ENERGY_TYPES} ${AND_B()}) AS month_energy,
          (SELECT COALESCE(SUM(amount),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B()}) AS month_amount,
          (SELECT COALESCE(SUM(distance_km),0) FROM v_waybill_calc
            WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_distance,
@@ -926,7 +1004,7 @@ function reports(kind: string, q: URLSearchParams) {
            WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_uld,
          (SELECT COALESCE(SUM(fact_liters),0) - COALESCE(SUM(norm_liters),0) FROM v_waybill_calc
            WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B()}) AS month_deviation`,
-      Array(9).fill([mFrom, mTo]).flat());
+      Array(10).fill([mFrom, mTo]).flat());
 
     return {
       period: { from: mFrom, to: mTo },
@@ -954,6 +1032,14 @@ function reports(kind: string, q: URLSearchParams) {
                        AND v.power_type <> 'electric'
                        AND v.fuel_balance < v.tank_capacity * 0.15
                      ORDER BY pct LIMIT 10`),
+      // Gibrid/elektr texnikada batareya zaryadi past
+      lowCharge: all(`SELECT v.id, v.garage_no, v.plate, v.model, v.fuel_balance2, v.tank_capacity2,
+                             ROUND(v.fuel_balance2 / NULLIF(v.tank_capacity2,0) * 100, 0) AS pct
+                        FROM vehicles v
+                       WHERE v.active = 1 AND v.fuel_type2_id IS NOT NULL AND v.tank_capacity2 > 0
+                         ${AND_B('v.branch_id')}
+                         AND v.fuel_balance2 < v.tank_capacity2 * 0.2
+                       ORDER BY pct LIMIT 5`),
       daily: all(`SELECT date, COALESCE(SUM(liters),0) AS liters FROM fuel_issues
                    WHERE date BETWEEN ? AND ? ${AND_B()} GROUP BY date ORDER BY date`, [mFrom, mTo]),
       topDeviation: all(`SELECT garage_no, plate, number, date_from,

@@ -34,6 +34,9 @@
   --danger-soft:   #F4E7E5;
   --warn:          #7E6220;
   --warn-soft:     #F2EDE0;
+  /* Elektr energiya — gibrid texnikaning ikkinchi manbai */
+  --volt:          #245D63;
+  --volt-soft:     #E3EDEE;
 
   --ink-btn:       #1A1D21;
   --ink-btn-hover: #33383E;
@@ -83,6 +86,8 @@
     --danger-soft:   #2A1B19;
     --warn:          #CBA85C;
     --warn-soft:     #262117;
+    --volt:          #74B4BD;
+    --volt-soft:     #152325;
 
     --ink-btn:       #EBECE8;
     --ink-btn-hover: #FFFFFF;
@@ -116,6 +121,8 @@
   --danger-soft:   #2A1B19;
   --warn:          #CBA85C;
   --warn-soft:     #262117;
+  --volt:          #74B4BD;
+  --volt-soft:     #152325;
   --ink-btn:       #EBECE8;
   --ink-btn-hover: #FFFFFF;
   --ink-btn-text:  #14171A;
@@ -211,6 +218,7 @@ a:hover { text-decoration: underline; }
   border-left: 2px solid transparent;
   color: var(--text-muted);
   font-size: 11.5px; letter-spacing: .09em;
+  font-weight: 700;                      /* menyu yozuvlari qalin */
   white-space: nowrap;
   text-decoration: none;
   transition: color .14s, border-color .14s, background .14s;
@@ -345,7 +353,7 @@ a:hover { text-decoration: underline; }
   display: flex; align-items: center; gap: 9px;
   padding: 12px 15px; text-decoration: none;
   color: var(--text-muted);
-  font-size: 11.5px; font-weight: 600;
+  font-size: 11.5px; font-weight: 700;   /* menyu yozuvlari qalin */
   text-transform: uppercase; letter-spacing: .09em;
   white-space: nowrap;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
@@ -547,6 +555,11 @@ table.tbl td input, table.tbl td select { padding: 8px 10px; font-size: 14.5px; 
 .badge.green { color: var(--success); border-color: var(--success); background: var(--success-soft); }
 .badge.amber { color: var(--brass);   border-color: var(--brass);   background: var(--brass-soft); }
 .badge.red   { color: var(--danger);  border-color: var(--danger);  background: var(--danger-soft); }
+.badge.volt  { color: var(--volt);    border-color: var(--volt);    background: var(--volt-soft); }
+
+/* Gibrid texnikaning ikkinchi manbai — jadvalda asosiy qiymat ostidagi qator */
+.volt-sub { color: var(--volt); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.volt-sub .text-pos, .volt-sub .text-neg { font-size: 11.5px; }
 
 .text-pos { color: var(--danger); font-weight: 600; font-variant-numeric: tabular-nums; }
 .text-neg { color: var(--success); font-weight: 600; font-variant-numeric: tabular-nums; }

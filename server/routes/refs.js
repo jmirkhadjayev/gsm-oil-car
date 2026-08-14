@@ -14,11 +14,14 @@ const ADMIN = ['admin'];
 const vehicleSelect = `
   SELECT v.*, ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
          ft.unit_uz, ft.unit_ru, ft.price AS fuel_price,
+         ft2.code AS fuel2_code, ft2.name_uz AS fuel2_name_uz, ft2.name_ru AS fuel2_name_ru,
+         ft2.unit_uz AS unit2_uz, ft2.unit_ru AS unit2_ru, ft2.price AS fuel2_price,
          ec.code AS category_code, ec.group_code,
          ec.name_uz AS category_name_uz, ec.name_ru AS category_name_ru,
          z.code AS zone_code, z.name_uz AS zone_name_uz, z.name_ru AS zone_name_ru
     FROM vehicles v
     JOIN fuel_types ft ON ft.id = v.fuel_type_id
+    LEFT JOIN fuel_types ft2 ON ft2.id = v.fuel_type2_id
     LEFT JOIN equipment_categories ec ON ec.id = v.category_id
     LEFT JOIN zones z ON z.id = v.zone_id`;
 
@@ -53,8 +56,16 @@ const POWERS = ['diesel', 'petrol', 'gas', 'electric', 'hybrid'];
 function vehicleBody(b) {
   const basis = str(b.norm_basis, 'Norma asosi', { max: 10 }) || 'km';
   if (!BASES.includes(basis)) throw bad('Noto\'g\'ri norma asosi');
-  const power = str(b.power_type, 'Quvvat manbai', { max: 10 }) || 'diesel';
+  let power = str(b.power_type, 'Quvvat manbai', { max: 10 }) || 'diesel';
   if (!POWERS.includes(power)) throw bad('Noto\'g\'ri quvvat manbai');
+
+  // Ikkinchi energiya manbai — gibrid texnika uchun
+  const fuel_type_id = num(b.fuel_type_id, 'Yoqilg\'i turi', { min: 1 });
+  const fuel_type2_id = b.fuel_type2_id ? num(b.fuel_type2_id, 'Ikkinchi manba turi', { min: 1 }) : null;
+  if (fuel_type2_id) {
+    if (fuel_type2_id === fuel_type_id) throw bad('Ikkinchi manba turi asosiysidan farq qilishi kerak');
+    power = 'hybrid';                       // ikkita manba bor — demak gibrid
+  }
 
   return {
     garage_no: str(b.garage_no, 'Garaj/inventar raqami', { required: true, max: 20 }),
@@ -66,15 +77,20 @@ function vehicleBody(b) {
     power_type: power,
     serial_no: str(b.serial_no, 'Zavod raqami', { max: 50 }),
     made_year: b.made_year ? num(b.made_year, 'Yil', { min: 1950, max: 2100 }) : null,
-    fuel_type_id: num(b.fuel_type_id, 'Yoqilg\'i turi', { min: 1 }),
+    fuel_type_id,
     tank_capacity: num(b.tank_capacity, 'Bak hajmi', { min: 0, max: 100000, def: 0 }),
     norm_per_100km: num(b.norm_per_100km, 'Norma (100 km)', { min: 0, max: 1000, def: 0 }),
     winter_pct: num(b.winter_pct, 'Qishki ustama', { min: 0, max: 100, def: 0 }),
     norm_engine_hour: num(b.norm_engine_hour, 'Motosoat normasi', { min: 0, max: 1000, def: 0 }),
     norm_per_ton_km: num(b.norm_per_ton_km, 'Yuk normasi', { min: 0, max: 1000, def: 0 }),
+    fuel_type2_id,
+    tank_capacity2: fuel_type2_id ? num(b.tank_capacity2, 'Batareya sig\'imi', { min: 0, max: 100000, def: 0 }) : 0,
+    norm2_per_100km: fuel_type2_id ? num(b.norm2_per_100km, 'Ikkinchi norma (100 km)', { min: 0, max: 1000, def: 0 }) : 0,
+    norm2_engine_hour: fuel_type2_id ? num(b.norm2_engine_hour, 'Ikkinchi norma (motosoat)', { min: 0, max: 1000, def: 0 }) : 0,
     init_odometer: num(b.init_odometer, 'Boshlang\'ich spidometr', { min: 0, max: 1e9, def: 0 }),
     init_hours: num(b.init_hours, 'Boshlang\'ich motosoat', { min: 0, max: 1e7, def: 0 }),
     init_fuel: num(b.init_fuel, 'Boshlang\'ich qoldiq', { min: 0, max: 100000, def: 0 }),
+    init_fuel2: fuel_type2_id ? num(b.init_fuel2, 'Boshlang\'ich zaryad', { min: 0, max: 100000, def: 0 }) : 0,
     active: bool(b.active ?? 1),
     notes: str(b.notes, 'Izoh', { max: 1000 }),
   };
@@ -84,14 +100,19 @@ router.post('/vehicles', requireAuth(...ADMIN), h((req, res) => {
   const v = vehicleBody(req.body);
   const branchId = branchForInsert(req, req.body);
   if (!get('SELECT id FROM fuel_types WHERE id = ?', [v.fuel_type_id])) throw bad('Yoqilg\'i turi topilmadi');
+  if (v.fuel_type2_id && !get('SELECT id FROM fuel_types WHERE id = ?', [v.fuel_type2_id])) {
+    throw bad('Ikkinchi manba turi topilmadi');
+  }
   if (get('SELECT id FROM vehicles WHERE garage_no = ? AND branch_id = ?', [v.garage_no, branchId])) {
     throw bad('Bu filialda bunday garaj raqami band');
   }
   const r = run(
     `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
        serial_no, made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct,
-       norm_engine_hour, norm_per_ton_km, init_odometer, init_hours, init_fuel, active, notes)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       norm_engine_hour, norm_per_ton_km,
+       fuel_type2_id, tank_capacity2, norm2_per_100km, norm2_engine_hour,
+       init_odometer, init_hours, init_fuel, init_fuel2, active, notes)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [branchId, ...Object.values(v)]
   );
   recalcVehicle(Number(r.lastInsertRowid));
@@ -109,8 +130,9 @@ router.put('/vehicles/:id', requireAuth(...ADMIN), h((req, res) => {
   run(
     `UPDATE vehicles SET garage_no=?, plate=?, model=?, category_id=?, zone_id=?, norm_basis=?,
        power_type=?, serial_no=?, made_year=?, fuel_type_id=?, tank_capacity=?, norm_per_100km=?,
-       winter_pct=?, norm_engine_hour=?, norm_per_ton_km=?, init_odometer=?, init_hours=?,
-       init_fuel=?, active=?, notes=?
+       winter_pct=?, norm_engine_hour=?, norm_per_ton_km=?,
+       fuel_type2_id=?, tank_capacity2=?, norm2_per_100km=?, norm2_engine_hour=?,
+       init_odometer=?, init_hours=?, init_fuel=?, init_fuel2=?, active=?, notes=?
      WHERE id=?`,
     [...Object.values(v), id]
   );

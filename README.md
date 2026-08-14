@@ -119,6 +119,18 @@ Xodimlarda lavozim (haydovchi, operator-mashinist, mexanik, yuk ortuvchi) va
 - Varaqaga bog'lash — quyilgan yoqilg'i o'sha varaqaning sarfiga kiradi
 - Bak sig'imidan oshib ketishi haqida ogohlantirish
 
+### Gibrid texnika (ikkita energiya manbai)
+Gibrid avtomobil va texnikada yoqilg'i baki hamda batareya **alohida** yuritiladi —
+litr bilan kVt·soat hech qayerda qo'shilmaydi:
+- Texnika kartochkasida ikkinchi manba turi, batareya sig'imi va o'z normalari
+  (kVt·s/100 km, kVt·s/motosoat) ko'rsatiladi
+- Yo'l varaqasida chiqishdagi/qaytgandagi zaryad, ikkinchi norma, fakt va farq
+- Quyish yozuvi tanlangan turga qarab **avtomatik** kerakli qoldiqqa tushadi
+  (dizel → bakka, elektr → batareyaga); begona tur rad etiladi
+- Hisobotlar va bosma shaklda ikkinchi manba ustunlari alohida (⚡ belgisi bilan)
+- Bosh sahifada oylik quyilgan yoqilg'i ostida kVt·soat alohida, batareyasi
+  bo'shab qolgan texnika ogohlantirishi bilan
+
 ### Normativ hisob-kitob
 ```
 norma = masofa/100 × norma_l_100km × (1 + qish%)
@@ -127,6 +139,9 @@ norma = masofa/100 × norma_l_100km × (1 + qish%)
 
 fakt  = chiqishdagi qoldiq + quyilgan − qaytgandagi qoldiq
 farq  = fakt − norma        (+ ortiqcha sarf,  − tejamkorlik)
+
+gibridda ikkinchi manba (kVt·soat) xuddi shunday, lekin alohida hisoblanadi:
+norma2 = masofa/100 × norma2_100km × (1 + qish%) + ish_soati × norma2_soat
 ```
 Normalar varaqa ochilganda **nusxalanadi** — spravochnikda norma keyin o'zgarsa ham,
 eski varaqalarning hisobi buzilmaydi.

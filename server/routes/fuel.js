@@ -14,7 +14,10 @@ const SELECT = `
          d.full_name AS driver_name,
          w.number AS waybill_number,
          ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
-         ft.unit_uz, ft.unit_ru
+         ft.unit_uz, ft.unit_ru,
+         -- Gibridda yozuv qaysi manbaga tushgani: 1 = ikkinchi (batareya), 0 = bak
+         CASE WHEN v.fuel_type2_id IS NOT NULL AND fi.fuel_type_id = v.fuel_type2_id
+              THEN 1 ELSE 0 END AS is_second
     FROM fuel_issues fi
     JOIN vehicles   v  ON v.id = fi.vehicle_id
     JOIN fuel_types ft ON ft.id = fi.fuel_type_id
@@ -60,6 +63,12 @@ function body(b) {
 
   const fuel_type_id = Number(b.fuel_type_id) || vehicle.fuel_type_id;
   if (!get('SELECT id FROM fuel_types WHERE id = ?', [fuel_type_id])) throw bad('Yoqilg\'i turi topilmadi');
+  // Gibrid texnikada yozuv aynan shu texnikaning ikki manbasidan biriga tegishli bo'lishi shart —
+  // aks holda qaysi qoldiqqa tushishi noaniq bo'lib qoladi.
+  if (vehicle.fuel_type2_id &&
+      fuel_type_id !== vehicle.fuel_type_id && fuel_type_id !== vehicle.fuel_type2_id) {
+    throw bad('Gibrid texnikada faqat uning ikki manbasidan biri tanlanadi');
+  }
 
   let driver_id = b.driver_id ? Number(b.driver_id) : null;
   if (driver_id && !get('SELECT id FROM drivers WHERE id = ?', [driver_id])) driver_id = null;

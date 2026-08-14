@@ -19,6 +19,10 @@ export default function WaybillPrint() {
 
   const fuelName = pick(lang, w, 'fuel_name');
   const deviation = w.fact_liters == null ? null : w.fact_liters - w.norm_liters;
+  const hybrid = !!w.fuel_type2_id;
+  const unit2 = (lang === 'uz' ? w.unit2_uz : w.unit2_ru) ?? '';
+  const deviation2 = w.fact2_liters == null || w.norm2_liters == null
+    ? null : w.fact2_liters - w.norm2_liters;
   const withKm = usesKm(w.norm_basis);
   const withHours = usesHours(w.norm_basis);
   const gse = isGse(w.group_code);
@@ -106,6 +110,41 @@ export default function WaybillPrint() {
             </tr>
           </tbody>
         </table>
+
+        {/* Gibrid texnika — ikkinchi manba alohida jadvalda (birliklar aralashmasin) */}
+        {hybrid && (
+          <>
+            <div style={{ fontWeight: 600, margin: '10px 0 4px' }}>
+              {t('hybridSource')} — {pick(lang, w, 'fuel2_name')}{unit2 ? `, ${unit2}` : ''}
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>{t('chargeStart')}</th>
+                  <th>{t('chargeIssued')}</th>
+                  <th>{t('chargeEnd')}</th>
+                  <th>{t('norm2Liters')}</th>
+                  <th>{t('fact2Liters')}</th>
+                  <th>{t('deviation2')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr style={{ textAlign: 'center' }}>
+                  <td>{nf(w.fuel2_start)}</td>
+                  <td>{nf(w.fuel2_issued)}</td>
+                  <td>{w.fuel2_end == null ? '' : nf(w.fuel2_end)}</td>
+                  <td>{w.norm2_liters == null ? '' : nf(w.norm2_liters)}</td>
+                  <td>{w.fact2_liters == null ? '' : nf(w.fact2_liters)}</td>
+                  <td>
+                    {deviation2 == null ? '' : `${deviation2 > 0 ? '+' : ''}${nf(deviation2)}`}
+                    {deviation2 != null && Math.abs(deviation2) > 0.005 &&
+                      ` (${deviation2 > 0 ? t('overrun') : t('economy')})`}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </>
+        )}
 
         {gse && (w.flights_served > 0 || w.cargo_ton > 0) && (
           <table>

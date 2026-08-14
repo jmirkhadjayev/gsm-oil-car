@@ -17,6 +17,8 @@ type FormState = {
   odo_start: string; hours_start: string; fuel_start: string;
   engine_hours: string; cargo_ton_km: string; winter: boolean;
   norm_per_100km: string; norm_engine_hour: string; norm_per_ton_km: string; winter_pct: string;
+  // gibrid texnikaning ikkinchi manbai
+  fuel2_start: string; norm2_per_100km: string; norm2_engine_hour: string;
   task: string; notes: string;
 };
 
@@ -26,6 +28,7 @@ const emptyForm: FormState = {
   odo_start: '0', hours_start: '0', fuel_start: '0',
   engine_hours: '0', cargo_ton_km: '0', winter: false,
   norm_per_100km: '0', norm_engine_hour: '0', norm_per_ton_km: '0', winter_pct: '0',
+  fuel2_start: '0', norm2_per_100km: '0', norm2_engine_hour: '0',
   task: '', notes: '',
 };
 
@@ -68,6 +71,9 @@ export default function WaybillForm() {
           winter: !!w.winter,
           norm_per_100km: String(w.norm_per_100km), norm_engine_hour: String(w.norm_engine_hour),
           norm_per_ton_km: String(w.norm_per_ton_km), winter_pct: String(w.winter_pct),
+          fuel2_start: String(w.fuel2_start ?? 0),
+          norm2_per_100km: String(w.norm2_per_100km ?? 0),
+          norm2_engine_hour: String(w.norm2_engine_hour ?? 0),
           task: w.task, notes: w.notes,
         });
         setRoutes((w.routes ?? []).map((r) => ({ ...emptyRoute(), ...r })));
@@ -92,6 +98,9 @@ export default function WaybillForm() {
         norm_per_ton_km: String(d.norm_per_ton_km),
         winter_pct: String(d.winter_pct),
         winter: !!d.winter,
+        fuel2_start: String(d.fuel2_start ?? 0),
+        norm2_per_100km: String(d.norm2_per_100km ?? 0),
+        norm2_engine_hour: String(d.norm2_engine_hour ?? 0),
         zone_id: f.zone_id || String(d.zone_id ?? ''),
       }));
     } catch (e: any) { toast(e.message, 'err'); }
@@ -154,8 +163,14 @@ export default function WaybillForm() {
         norm_engine_hour: Number(form.norm_engine_hour || 0),
         norm_per_ton_km: Number(form.norm_per_ton_km || 0),
         winter_pct: Number(form.winter_pct || 0),
+        fuel2_start: Number(form.fuel2_start || 0),
+        norm2_per_100km: Number(form.norm2_per_100km || 0),
+        norm2_engine_hour: Number(form.norm2_engine_hour || 0),
         routes,
-        ...(loaded ? { odo_end: loaded.odo_end, hours_end: loaded.hours_end, fuel_end: loaded.fuel_end } : {}),
+        ...(loaded ? {
+          odo_end: loaded.odo_end, hours_end: loaded.hours_end,
+          fuel_end: loaded.fuel_end, fuel2_end: loaded.fuel2_end,
+        } : {}),
       };
       const saved = isNew
         ? await api.post<Waybill>('/waybills', payload)
@@ -174,6 +189,13 @@ export default function WaybillForm() {
 
   const canSubmit = form.vehicle_id && form.driver_id && form.date_from && !readOnly;
   const fuelUnitLabel = vehicle?.power_type === 'electric' ? (lang === 'uz' ? 'kVt·s' : 'кВт·ч') : (lang === 'uz' ? 'l' : 'л');
+  // Gibrid: ikkinchi manba alohida ko'rsatiladi va alohida hisoblanadi
+  const hybrid = !!(vehicle?.fuel_type2_id ?? loaded?.fuel_type2_id);
+  const unit2 = (lang === 'uz' ? (vehicle?.unit2_uz ?? loaded?.unit2_uz) : (vehicle?.unit2_ru ?? loaded?.unit2_ru)) ?? '';
+  const norm2 = hybrid
+    ? ((distance / 100) * Number(form.norm2_per_100km || 0) +
+       hours * Number(form.norm2_engine_hour || 0)) * winterK
+    : 0;
 
   return (
     <>
@@ -238,6 +260,7 @@ export default function WaybillForm() {
                 {withKm && <> · {t('currentOdometer')}: <b>{ni(vehicle.odometer)}</b> km</>}
                 {withHours && <> · {t('currentHours')}: <b>{nf(vehicle.hour_meter, 1)}</b></>}
                 {' '}· {t('tankBalance')}: <b>{nf(vehicle.fuel_balance)}</b> {fuelUnitLabel}
+                {hybrid && <> · ⚡ {t('chargeBalance')}: <b>{nf(vehicle.fuel_balance2)}</b> {unit2}</>}
               </div>
             )}
 
@@ -262,8 +285,14 @@ export default function WaybillForm() {
                 <Input label={t('hoursStart')} type="number" step="0.1" value={form.hours_start}
                        onChange={set('hours_start')} disabled={readOnly} />
               )}
-              <Input label={`${t('fuelStart')} (${fuelUnitLabel})`} type="number" step="0.01"
+              <Input label={fuelUnitLabel === 'l' || fuelUnitLabel === 'л'
+                              ? t('fuelStart') : `${t('fuelStart')} (${fuelUnitLabel})`}
+                     type="number" step="0.01"
                      value={form.fuel_start} onChange={set('fuel_start')} disabled={readOnly} />
+              {hybrid && (
+                <Input label={`⚡ ${t('chargeStart')}${unit2 ? ` (${unit2})` : ''}`} type="number" step="0.01"
+                       value={form.fuel2_start} onChange={set('fuel2_start')} disabled={readOnly} />
+              )}
             </div>
 
             {loaded?.status === 'closed' && (
@@ -271,6 +300,7 @@ export default function WaybillForm() {
                 {withKm && <Input label={t('odoEnd')} value={ni(loaded.odo_end)} disabled />}
                 {withHours && <Input label={t('hoursEnd')} value={nf(loaded.hours_end, 1)} disabled />}
                 <Input label={t('fuelEnd')} value={nf(loaded.fuel_end)} disabled />
+                {hybrid && <Input label={`⚡ ${t('chargeEnd')}`} value={nf(loaded.fuel2_end)} disabled />}
               </div>
             )}
 
@@ -299,6 +329,18 @@ export default function WaybillForm() {
               <Input label={t('winterPct')} type="number" step="1" value={form.winter_pct}
                      onChange={set('winter_pct')} disabled={readOnly} />
             </div>
+            {hybrid && (
+              <div className="form-row">
+                {withKm && (
+                  <Input label={`⚡ ${t('norm2_100')}`} type="number" step="0.1" value={form.norm2_per_100km}
+                         onChange={set('norm2_per_100km')} disabled={readOnly} />
+                )}
+                {withHours && (
+                  <Input label={`⚡ ${t('norm2Hour')}`} type="number" step="0.1" value={form.norm2_engine_hour}
+                         onChange={set('norm2_engine_hour')} disabled={readOnly} />
+                )}
+              </div>
+            )}
             <Checkbox label={`${t('winter')} (+${form.winter_pct}%)`} checked={form.winter}
                       onChange={set('winter')} disabled={readOnly} />
 
@@ -311,6 +353,17 @@ export default function WaybillForm() {
               <Metric label={t('fuelIssued')} value={nf(loaded?.fuel_issued ?? 0)} />
               <Metric label={t('factLiters')} value={loaded?.fact_liters == null ? '—' : nf(loaded.fact_liters)} />
             </div>
+
+            {hybrid && (
+              <>
+                <div className="section-title">⚡ {t('hybridSource')} {unit2 ? `(${unit2})` : ''}</div>
+                <div className="grid cols-3">
+                  <Metric label={t('norm2Liters')} value={nf(norm2)} />
+                  <Metric label={t('chargeIssued')} value={nf(loaded?.fuel2_issued ?? 0)} />
+                  <Metric label={t('fact2Liters')} value={loaded?.fact2_liters == null ? '—' : nf(loaded.fact2_liters)} />
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -452,10 +505,14 @@ export default function WaybillForm() {
                   {loaded.fuel.map((f) => (
                     <tr key={f.id}>
                       <td>{dmy(f.date)}</td>
-                      <td>{f.fuel_code}</td>
+                      <td>
+                        <span className={`badge ${f.is_second ? 'volt' : 'blue'}`}>
+                          {f.is_second ? '⚡ ' : ''}{f.fuel_code}
+                        </span>
+                      </td>
                       <td>{f.station || '—'}</td>
                       <td>{f.doc_no || '—'}</td>
-                      <td className="num">{nf(f.liters)}</td>
+                      <td className="num">{nf(f.liters)} {pick(lang, f, 'unit')}</td>
                       <td className="num">{ni(f.price)}</td>
                       <td className="num">{ni(f.amount)}</td>
                     </tr>
@@ -464,7 +521,10 @@ export default function WaybillForm() {
                 <tfoot>
                   <tr>
                     <td colSpan={4}>{t('total')}</td>
-                    <td className="num">{nf(loaded.fuel_issued)}</td>
+                    <td className="num">
+                      {nf(loaded.fuel_issued)}
+                      {hybrid && <div className="text-muted" style={{ fontSize: 12 }}>⚡ {nf(loaded.fuel2_issued)} {unit2}</div>}
+                    </td>
                     <td />
                     <td className="num">{ni(loaded.fuel.reduce((s, f) => s + f.amount, 0))}</td>
                   </tr>

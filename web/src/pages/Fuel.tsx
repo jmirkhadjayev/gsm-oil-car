@@ -120,7 +120,11 @@ export default function Fuel() {
                     <td>{r.garage_no} · {r.plate}</td>
                     <td>{r.driver_name || '—'}</td>
                     <td>{r.waybill_number ? `№${r.waybill_number}` : <span className="text-muted">{t('noWaybill')}</span>}</td>
-                    <td><span className="badge blue">{r.fuel_code}</span></td>
+                    <td>
+                      <span className={`badge ${r.is_second ? 'volt' : 'blue'}`}>
+                        {r.is_second ? '⚡ ' : ''}{r.fuel_code}
+                      </span>
+                    </td>
                     <td className="num">{nf(r.liters)}</td>
                     <td className="num">{ni(r.price)}</td>
                     <td className="num">{ni(r.amount)}</td>
@@ -214,9 +218,27 @@ function FuelModal({ row, vehicles, fuelTypes, onClose, onDone }: {
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm((f) => ({ ...f, [k]: e.target.value }));
 
+  /** Manba almashtirilsa narx ham o'sha turnikidan olinadi (zaryad narxi boshqa). */
+  const onFuelType = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    const ft = fuelTypes.find((x) => String(x.id) === id);
+    setForm((f) => ({ ...f, fuel_type_id: id, price: ft?.price ? String(ft.price) : f.price }));
+  };
+
   const amount = Number(form.liters || 0) * Number(form.price || 0);
-  const newBalance = vehicle ? vehicle.fuel_balance + Number(form.liters || 0) - (row?.liters ?? 0) : 0;
-  const overflow = vehicle && vehicle.tank_capacity > 0 && newBalance > vehicle.tank_capacity;
+  // Gibrid texnikada yozuv tanlangan turga qarab bakka yoki batareyaga tushadi
+  const second = !!vehicle?.fuel_type2_id && form.fuel_type_id === String(vehicle.fuel_type2_id);
+  const balance = second ? (vehicle?.fuel_balance2 ?? 0) : (vehicle?.fuel_balance ?? 0);
+  const capacity = second ? (vehicle?.tank_capacity2 ?? 0) : (vehicle?.tank_capacity ?? 0);
+  const newBalance = vehicle ? balance + Number(form.liters || 0) - (row?.liters ?? 0) : 0;
+  const overflow = !!vehicle && capacity > 0 && newBalance > capacity;
+  // Gibridda faqat shu texnikaning ikki manbasidan biri tanlanadi
+  const allowedFuels = vehicle?.fuel_type2_id
+    ? fuelTypes.filter((ft) => ft.id === vehicle.fuel_type_id || ft.id === vehicle.fuel_type2_id)
+    : fuelTypes;
+  const unitLabel = second
+    ? (pick(lang, vehicle as any, 'unit2') || '')
+    : (pick(lang, (vehicle ?? {}) as any, 'unit') || (lang === 'uz' ? 'l' : 'л'));
 
   const submit = async () => {
     setBusy(true);
@@ -280,11 +302,13 @@ function FuelModal({ row, vehicles, fuelTypes, onClose, onDone }: {
       </div>
 
       <div className="form-row">
-        <Select label={t('fuelType')} value={form.fuel_type_id} onChange={set('fuel_type_id')}>
+        <Select label={t('fuelType')} value={form.fuel_type_id} onChange={onFuelType}
+                hint={vehicle?.fuel_type2_id ? t('hybridHint') : undefined}>
           <option value="">—</option>
-          {fuelTypes.map((ft) => <option key={ft.id} value={ft.id}>{pick(lang, ft, 'name')}</option>)}
+          {allowedFuels.map((ft) => <option key={ft.id} value={ft.id}>{pick(lang, ft, 'name')}</option>)}
         </Select>
-        <Input label={t('liters')} type="number" step="0.01" value={form.liters} onChange={set('liters')} />
+        <Input label={`${t('liters')}${unitLabel ? `, ${unitLabel}` : ''}`} type="number" step="0.01"
+               value={form.liters} onChange={set('liters')} />
         <Input label={t('price')} type="number" step="1" value={form.price} onChange={set('price')} />
       </div>
 
@@ -310,9 +334,9 @@ function FuelModal({ row, vehicles, fuelTypes, onClose, onDone }: {
         </div>
         {vehicle && (
           <div>
-            <div className="stat-label">{t('tankBalance')}</div>
+            <div className="stat-label">{second ? `⚡ ${t('chargeBalance')}` : t('tankBalance')}</div>
             <div className="stat-value" style={{ fontSize: 19, color: overflow ? 'var(--danger)' : undefined }}>
-              {nf(newBalance)} / {ni(vehicle.tank_capacity)} l
+              {nf(newBalance)} / {ni(capacity)} {unitLabel}
             </div>
             {overflow && <div className="hint" style={{ color: 'var(--danger)' }}>⚠ Bak sig'imidan oshib ketdi</div>}
           </div>

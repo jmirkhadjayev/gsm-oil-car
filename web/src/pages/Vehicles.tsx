@@ -44,11 +44,14 @@ export default function Vehicles() {
           'texnika-parki',
           [t('garageNo'), t('plate'), t('model'), t('category'), t('group'), t('normBasis'), t('powerType'),
            t('fuelType'), t('tankCapacity'), t('norm100'), t('normHour'),
-           t('currentOdometer'), t('currentHours'), t('tankBalance'), t('status')],
+           t('currentOdometer'), t('currentHours'), t('tankBalance'),
+           t('source2'), t('chargeBalance'), t('status')],
           rows.map((v) => [v.garage_no, v.plate, v.model, pick(lang, v, 'category_name'),
             L.group[v.group_code ?? 'road'], L.basis[v.norm_basis], L.power[v.power_type],
             v.fuel_code ?? '', v.tank_capacity, v.norm_per_100km, v.norm_engine_hour,
-            v.odometer, v.hour_meter, v.fuel_balance, v.active ? t('active') : t('archived')])
+            v.odometer, v.hour_meter, v.fuel_balance,
+            v.fuel2_code ?? '', v.fuel_type2_id ? v.fuel_balance2 : '',
+            v.active ? t('active') : t('archived')])
         )}>⭳ {t('export')}</button>
         {can('refs') && <button className="btn btn-primary btn-sm" onClick={() => setEditing('new')}>＋ {t('newVehicle')}</button>}
       </div>
@@ -115,6 +118,7 @@ export default function Vehicles() {
                       <td>{pick(lang, v, 'zone_name') || '—'}</td>
                       <td>
                         <span className="badge blue">{v.fuel_code}</span>
+                        {v.fuel2_code && <span className="badge volt" style={{ marginLeft: 4 }}>⚡ {v.fuel2_code}</span>}
                         <div className="text-muted" style={{ fontSize: 12 }}>{L.power[v.power_type]}</div>
                       </td>
                       <td className="num">{usesKm(v.norm_basis) ? nf(v.norm_per_100km, 1) : '—'}</td>
@@ -125,6 +129,11 @@ export default function Vehicles() {
                         {nf(v.fuel_balance)}
                         {pct !== null && v.power_type !== 'electric' && (
                           <span className={`badge ${pct < 15 ? 'amber' : ''}`} style={{ marginLeft: 6 }}>{ni(pct)}%</span>
+                        )}
+                        {v.fuel_type2_id && (
+                          <div className="text-muted" style={{ fontSize: 12 }}>
+                            ⚡ {nf(v.fuel_balance2)} {pick(lang, v, 'unit2') || ''}
+                          </div>
                         )}
                       </td>
                       <td>{v.active ? <span className="badge green">{t('active')}</span> : <span className="badge">{t('archived')}</span>}</td>
@@ -187,6 +196,11 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
     winter_pct: String(row?.winter_pct ?? 10),
     norm_engine_hour: String(row?.norm_engine_hour ?? 0),
     norm_per_ton_km: String(row?.norm_per_ton_km ?? 0),
+    fuel_type2_id: String(row?.fuel_type2_id ?? ''),
+    tank_capacity2: String(row?.tank_capacity2 ?? 0),
+    norm2_per_100km: String(row?.norm2_per_100km ?? 0),
+    norm2_engine_hour: String(row?.norm2_engine_hour ?? 0),
+    init_fuel2: String(row?.init_fuel2 ?? 0),
     init_odometer: String(row?.init_odometer ?? 0),
     init_hours: String(row?.init_hours ?? 0),
     init_fuel: String(row?.init_fuel ?? 0),
@@ -215,6 +229,16 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
     }));
   };
 
+  /** Ikkinchi manba tanlansa — texnika gibridga aylanadi, bekor qilinsa qaytadi. */
+  const onSecondFuel = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const id = e.target.value;
+    setForm((f) => ({
+      ...f,
+      fuel_type2_id: id,
+      power_type: id ? 'hybrid' : (f.power_type === 'hybrid' ? 'diesel' : f.power_type),
+    }));
+  };
+
   const submit = async () => {
     setBusy(true);
     try {
@@ -229,6 +253,11 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
         winter_pct: Number(form.winter_pct || 0),
         norm_engine_hour: Number(form.norm_engine_hour || 0),
         norm_per_ton_km: Number(form.norm_per_ton_km || 0),
+        fuel_type2_id: form.fuel_type2_id ? Number(form.fuel_type2_id) : null,
+        tank_capacity2: Number(form.tank_capacity2 || 0),
+        norm2_per_100km: Number(form.norm2_per_100km || 0),
+        norm2_engine_hour: Number(form.norm2_engine_hour || 0),
+        init_fuel2: Number(form.init_fuel2 || 0),
         init_odometer: Number(form.init_odometer || 0),
         init_hours: Number(form.init_hours || 0),
         init_fuel: Number(form.init_fuel || 0),
@@ -246,6 +275,9 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
 
   const basis = form.norm_basis as Vehicle['norm_basis'];
   const valid = form.garage_no && form.model && form.fuel_type_id;
+  const hybrid = !!form.fuel_type2_id;
+  const fuel2 = fuelTypes.find((ft) => String(ft.id) === form.fuel_type2_id);
+  const unit2 = fuel2 ? pick(lang, fuel2, 'unit') : '';
 
   return (
     <Modal
@@ -315,6 +347,33 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
         <Input label={t('winterPct')} type="number" step="1" value={form.winter_pct} onChange={set('winter_pct')} />
       </div>
 
+      <div className="section-title">{t('hybridSource')}</div>
+      <div className="hint" style={{ marginBottom: 10 }}>{t('hybridHint')}</div>
+      <div className="form-row">
+        <Select label={t('source2')} value={form.fuel_type2_id} onChange={onSecondFuel}>
+          <option value="">— {t('none')}</option>
+          {fuelTypes
+            .filter((ft) => String(ft.id) !== form.fuel_type_id)
+            .map((ft) => <option key={ft.id} value={ft.id}>{pick(lang, ft, 'name')}</option>)}
+        </Select>
+        {hybrid && (
+          <>
+            <Input label={`${t('capacity2')}${unit2 ? `, ${unit2}` : ''}`} type="number" step="1"
+                   value={form.tank_capacity2} onChange={set('tank_capacity2')} />
+            {usesKm(basis) && (
+              <Input label={t('norm2_100')} type="number" step="0.1"
+                     value={form.norm2_per_100km} onChange={set('norm2_per_100km')} />
+            )}
+            {usesHours(basis) && (
+              <Input label={t('norm2Hour')} type="number" step="0.1"
+                     value={form.norm2_engine_hour} onChange={set('norm2_engine_hour')} />
+            )}
+            <Input label={`${t('initCharge')}${unit2 ? `, ${unit2}` : ''}`} type="number" step="0.01"
+                   value={form.init_fuel2} onChange={set('init_fuel2')} />
+          </>
+        )}
+      </div>
+
       <div className="section-title">{t('initOdometer')}</div>
       <div className="form-row">
         {usesKm(basis) && (
@@ -345,6 +404,12 @@ function VehicleModal({ row, categories, zones, fuelTypes, onClose, onDone }: {
             <div className="stat-label">{t('tankBalance')}</div>
             <div className="stat-value" style={{ fontSize: 18 }}>{nf(row.fuel_balance)}</div>
           </div>
+          {hybrid && (
+            <div>
+              <div className="stat-label">⚡ {t('chargeBalance')}</div>
+              <div className="stat-value" style={{ fontSize: 18 }}>{nf(row.fuel_balance2)} {unit2}</div>
+            </div>
+          )}
         </div>
       )}
 

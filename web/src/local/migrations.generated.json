@@ -25,6 +25,18 @@
     { "table": "vehicles", "column": "init_hours", "type": "REAL", "default": "0" },
     { "table": "vehicles", "column": "hour_meter", "type": "REAL", "default": "0" },
 
+    { "table": "vehicles", "column": "fuel_type2_id", "type": "INTEGER" },
+    { "table": "vehicles", "column": "tank_capacity2", "type": "REAL", "default": "0" },
+    { "table": "vehicles", "column": "norm2_per_100km", "type": "REAL", "default": "0" },
+    { "table": "vehicles", "column": "norm2_engine_hour", "type": "REAL", "default": "0" },
+    { "table": "vehicles", "column": "init_fuel2", "type": "REAL", "default": "0" },
+    { "table": "vehicles", "column": "fuel_balance2", "type": "REAL", "default": "0" },
+
+    { "table": "waybills", "column": "fuel2_start", "type": "REAL", "default": "0" },
+    { "table": "waybills", "column": "fuel2_end", "type": "REAL" },
+    { "table": "waybills", "column": "norm2_per_100km", "type": "REAL", "default": "0" },
+    { "table": "waybills", "column": "norm2_engine_hour", "type": "REAL", "default": "0" },
+
     { "table": "drivers", "column": "position", "type": "TEXT", "default": "'driver'" },
     { "table": "drivers", "column": "apron_permit", "type": "TEXT", "default": "''" },
     { "table": "drivers", "column": "permit_until", "type": "TEXT" },

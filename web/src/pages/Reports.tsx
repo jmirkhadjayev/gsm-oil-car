@@ -38,6 +38,17 @@ export default function Reports() {
       { key: 'perhour', label: t('factPerHour'), get: (r) => (r.fact_per_hour == null ? '—' : nf(r.fact_per_hour)), num: true },
       { key: 'dev', label: t('deviation'), get: (r) => r.deviation, num: true, dev: true },
       { key: 'bal', label: t('tankBalance'), get: (r) => nf(r.fuel_balance), num: true },
+      // Gibrid texnikaning ikkinchi manbai — litr bilan qo'shilmaydi, alohida ustunlar
+      { key: 'issued2', label: `⚡ ${t('chargeIssued')}`, num: true,
+        get: (r) => (r.fuel_type2_id ? nf(r.issued_energy) : '—') },
+      { key: 'norm2', label: `⚡ ${t('norm2Liters')}`, num: true,
+        get: (r) => (r.fuel_type2_id ? nf(r.norm2_liters) : '—') },
+      { key: 'fact2', label: `⚡ ${t('fact2Liters')}`, num: true,
+        get: (r) => (r.fuel_type2_id ? nf(r.fact2_liters) : '—') },
+      { key: 'dev2', label: `⚡ ${t('deviation2')}`, num: true, dev: true,
+        get: (r) => (r.fuel_type2_id ? r.deviation2 : null) },
+      { key: 'bal2', label: `⚡ ${t('chargeBalance')}`, num: true,
+        get: (r) => (r.fuel_type2_id ? nf(r.fuel_balance2) : '—') },
     ],
     categories: [
       { key: 'cat', label: t('category'), get: (r) => `${GROUP_ICON[r.group_code as EquipGroup]} ${pick(lang, r, 'name')}` },
@@ -193,6 +204,8 @@ export default function Reports() {
                       amount: 'issued_amount', rec: 'records', liters: 'issued_liters',
                       hours: 'engine_hours', flights: 'flights', cargo: 'cargo_ton',
                       uld: 'uld_count', pax: 'pax_count', units: 'units',
+                      issued2: 'issued_energy', norm2: 'norm2_liters',
+                      fact2: 'fact2_liters', dev2: 'deviation2',
                     };
                     const key = map[c.key as string];
                     if (!key || totals[key] === undefined) return <td key={c.key} />;

@@ -125,6 +125,12 @@ export type Vehicle = {
   init_odometer: number; init_hours: number; init_fuel: number;
   odometer: number; hour_meter: number; fuel_balance: number;
   active: number; notes: string;
+  // gibrid texnikaning ikkinchi energiya manbai (fuel_type2_id null bo'lsa — bitta manba)
+  fuel_type2_id: number | null; tank_capacity2: number;
+  norm2_per_100km: number; norm2_engine_hour: number;
+  init_fuel2: number; fuel_balance2: number;
+  fuel2_code?: string | null; fuel2_name_uz?: string; fuel2_name_ru?: string;
+  unit2_uz?: string; unit2_ru?: string; fuel2_price?: number;
   fuel_code?: string; fuel_name_uz?: string; fuel_name_ru?: string;
   unit_uz?: string; unit_ru?: string; fuel_price?: number;
   category_code?: string; group_code?: EquipGroup;
@@ -177,6 +183,14 @@ export type Waybill = {
   fuel_issued: number; distance_km: number | null; worked_hours: number;
   flights_served: number; cargo_ton: number; uld_count: number; pax_count: number;
   norm_liters: number; fact_liters: number | null; deviation?: number | null;
+  // ikkinchi manba (gibrid) — alohida hisoblanadi
+  fuel2_start: number; fuel2_end: number | null;
+  norm2_per_100km: number; norm2_engine_hour: number;
+  fuel_type2_id?: number | null; fuel2_code?: string | null;
+  fuel2_name_uz?: string; fuel2_name_ru?: string;
+  unit2_uz?: string; unit2_ru?: string;
+  fuel2_issued: number; norm2_liters: number | null; fact2_liters: number | null;
+  deviation2?: number | null;
   routes?: RouteRow[]; fuel?: FuelIssue[];
 };
 
@@ -186,6 +200,9 @@ export type FuelIssue = {
   source: 'azs' | 'ombor' | 'talon' | 'karta'; station: string; doc_no: string; notes: string;
   garage_no?: string; plate?: string; model?: string; driver_name?: string;
   waybill_number?: string; fuel_code?: string; fuel_name_uz?: string; fuel_name_ru?: string;
+  unit_uz?: string; unit_ru?: string;
+  /** 1 — yozuv gibrid texnikaning ikkinchi manbasiga (batareya) tushgan */
+  is_second?: number;
 };
 
 export type Org = {

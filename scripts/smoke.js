@@ -88,11 +88,70 @@ const run = async () => {
   const rep = await api('GET', '/api/reports/vehicles?from=2026-08-01&to=2026-08-31');
   console.log(`\nHisobotda ${rep.rows.length} ta avtomobil, jami quyilgan: ${rep.totals.issued_liters} l`);
 
+  // ------------------- 7) Gibrid texnika: ikkita manba -------------------
+  const el = fuelTypes.find((f) => f.code === 'ELEKTR');
+  const hyb = await api('POST', '/api/vehicles', {
+    garage_no: `H-${stamp}`, plate: `01 H ${stamp}`, model: 'Sinov gibrid',
+    fuel_type_id: dt.id, tank_capacity: 60, norm_per_100km: 6, winter_pct: 10,
+    fuel_type2_id: el.id, tank_capacity2: 20, norm2_per_100km: 8,
+    init_odometer: 10000, init_fuel: 30, init_fuel2: 10,
+  });
+  console.log('\n— Gibrid texnika —');
+  check('Quvvat manbai gibridga o\'tdi', hyb.power_type === 'hybrid' ? 1 : 0, 1);
+  check('Bak qoldig\'i, l', hyb.fuel_balance, 30);
+  check('Batareya qoldig\'i, kVt·s', hyb.fuel_balance2, 10);
+
+  const hw = await api('POST', '/api/waybills', {
+    vehicle_id: hyb.id, driver_id: driver.id, date_from: '2026-08-13',
+    odo_start: 10000, fuel_start: 30, fuel2_start: 10, winter: 0, task: 'Gibrid sinovi',
+  });
+  check('Varaqada zaryad qoldig\'i', hw.fuel2_start, 10);
+
+  // Ikkala manbaga alohida quyish: 20 l dizel va 15 kVt·s zaryad
+  await api('POST', '/api/fuel', {
+    date: '2026-08-13', vehicle_id: hyb.id, waybill_id: hw.id,
+    fuel_type_id: dt.id, liters: 20, price: 9500, source: 'azs',
+  });
+  await api('POST', '/api/fuel', {
+    date: '2026-08-13', vehicle_id: hyb.id, waybill_id: hw.id,
+    fuel_type_id: el.id, liters: 15, price: 450, source: 'ombor', station: 'Zaryadlash stansiyasi',
+  });
+  const hOpen = await api('GET', `/api/waybills/${hw.id}`);
+  check('Quyilgan yoqilg\'i, l', hOpen.fuel_issued, 20);
+  check('Quyilgan zaryad, kVt·s', hOpen.fuel2_issued, 15);
+
+  // Yopish: 200 km, bakda 38 l, batareyada 9 kVt·s
+  const hClosed = await api('POST', `/api/waybills/${hw.id}/close`, {
+    odo_end: 10200, fuel_end: 38, fuel2_end: 9,
+  });
+  check('Norma (yoqilg\'i), l', hClosed.norm_liters, 12);        // 200/100 × 6
+  check('Fakt (yoqilg\'i), l', hClosed.fact_liters, 12);         // 30 + 20 − 38
+  check('Norma (zaryad), kVt·s', hClosed.norm2_liters, 16);      // 200/100 × 8
+  check('Fakt (zaryad), kVt·s', hClosed.fact2_liters, 16);       // 10 + 15 − 9
+  check('Farq (zaryad)', hClosed.deviation2, 0);
+
+  const hv = await api('GET', `/api/vehicles/${hyb.id}`);
+  check('Bak qoldig\'i yangilandi', hv.fuel_balance, 38);
+  check('Batareya qoldig\'i yangilandi', hv.fuel_balance2, 9);
+
+  // Yot yoqilg'i turi gibridga tushmasligi kerak
+  const ai = fuelTypes.find((f) => f.code === 'AI92');
+  let rejected = 0;
+  try {
+    await api('POST', '/api/fuel', {
+      date: '2026-08-13', vehicle_id: hyb.id, fuel_type_id: ai.id, liters: 5, price: 10000,
+    });
+  } catch { rejected = 1; }
+  check('Begona yoqilg\'i turi rad etildi', rejected, 1);
+
   // Tozalash
   await api('DELETE', `/api/waybills/${wb.id}`);
-  const fuelList = await api('GET', `/api/fuel?vehicle_id=${vehicle.id}`);
-  for (const f of fuelList.rows) await api('DELETE', `/api/fuel/${f.id}`);
-  await api('DELETE', `/api/vehicles/${vehicle.id}`);
+  await api('DELETE', `/api/waybills/${hw.id}`);
+  for (const id of [vehicle.id, hyb.id]) {
+    const list = await api('GET', `/api/fuel?vehicle_id=${id}`);
+    for (const f of list.rows) await api('DELETE', `/api/fuel/${f.id}`);
+    await api('DELETE', `/api/vehicles/${id}`);
+  }
   await api('DELETE', `/api/drivers/${driver.id}`);
 
   console.log(failed ? `\n${failed} ta tekshiruv muvaffaqiyatsiz.` : '\nBarcha tekshiruvlar muvaffaqiyatli o\'tdi.');

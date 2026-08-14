@@ -89,20 +89,23 @@ function seedBranch(branchId: number, limit: number) {
   const zoneId = (code: string) => get<{ id: number }>('SELECT id FROM zones WHERE code = ?', [code])?.id ?? null;
   const fuelId = (code: string) => get<{ id: number }>('SELECT id FROM fuel_types WHERE code = ?', [code])?.id ?? null;
 
-  // [garaj, raqam, rusum, turkum, zona, yoqilg'i, bak, spidometr, motosoat, qoldiq, yil]
+  // [garaj, raqam, rusum, turkum, zona, yoqilg'i, bak, spidometr, motosoat, qoldiq, yil, gibrid?]
+  // gibrid = [ikkinchi manba kodi, sig'imi, norma/100km, norma/motosoat, boshlang'ich zaryad]
+  const HY_DEICER = ['ELEKTR', 90, 0, 6, 62];
+  const HY_CAR = ['ELEKTR', 18, 6.5, 0, 12];
   const fleet: any[][] = [
     ['GSE-01', '10 A 001 AP', 'Goldhofer AST-1X',         'PUSHBACK',   'APRON',    'DT',     240, 18400,  6120, 120, 2019],
     ['GSE-02', '10 A 002 AP', 'TLD TMX-150',              'PUSHBACK',   'APRON',    'DT',     200, 22150,  7340,  95, 2017],
     ['GSE-03', '—',           'TLD GPU-4090',             'GPU',        'APRON',    'DT',     150,     0,  9880,  70, 2018],
     ['GSE-04', '—',           'GUINAULT ASU-600',         'ASU',        'APRON',    'DT',     180,     0,  4210,  85, 2020],
     ['GSE-05', '—',           'TLD ACU-302',              'ACU',        'APRON',    'DT',     160,     0,  3760,  60, 2021],
-    ['GSE-06', '10 A 006 AP', 'Vestergaard Elephant BETA','DEICER',     'APRON',    'DT',     400,  9120,  2480, 210, 2020],
+    ['GSE-06', '10 A 006 AP', 'Vestergaard Elephant BETA e-drive','DEICER','APRON', 'DT',     400,  9120,  2480, 210, 2020, HY_DEICER],
     ['GSE-07', '10 A 007 AP', 'Mercedes Actros TZ-60',    'REFUELLER',  'APRON',    'DT',     300, 41250,  5610, 140, 2016],
     ['GSE-08', '10 A 008 AP', 'Kamaz AC-45 hydrant',      'HYDRANT',    'APRON',    'DT',     250, 33800,  4950, 115, 2018],
     ['GSE-09', '10 A 009 AP', 'Mallaghan CT6000',         'CATERING',   'APRON',    'DT',     180, 15600,  3120,  80, 2019],
     ['GSE-10', '10 A 010 AP', 'Mallaghan LS500 lavatory', 'LAVATORY',   'APRON',    'DT',     120, 12480,  2140,  55, 2019],
     ['GSE-11', '10 A 011 AP', 'Mallaghan WS400 water',    'WATER',      'APRON',    'DT',     120, 11350,  1980,  50, 2019],
-    ['GSE-12', '10 A 012 AP', 'Toyota Land Cruiser FM',   'FOLLOWME',   'APRON',    'AI92',    93, 64200,     0,  45, 2021],
+    ['GSE-12', '10 A 012 AP', 'Toyota RAV4 Hybrid (Follow me)','FOLLOWME','APRON',  'AI92',    55, 64200,     0,  45, 2021, HY_CAR],
     ['GSE-13', '10 A 013 AP', 'Mallaghan PS150',          'AIRSTAIRS',  'APRON',    'DT',     100,  8760,  1520,  42, 2020],
     ['GSE-14', '10 B 014 AP', 'Cobus 3000',               'APRONBUS',   'TERMINAL', 'DT',     250, 96400,     0, 130, 2015],
     ['GSE-15', '10 B 015 AP', 'Cobus 2700S',              'APRONBUS',   'TERMINAL', 'DT',     250, 78900,     0, 118, 2017],
@@ -135,7 +138,7 @@ function seedBranch(branchId: number, limit: number) {
     ['AFD-07', '—',           'Caterpillar 428 loader',   'LOADER',     'HANGAR',   'DT',     130,     0,  5620,  60, 2017],
     ['AFD-08', '—',           'FG Wilson P110 generator', 'GENERATOR',  'HANGAR',   'DT',     200,     0,  6940,  95, 2015],
 
-    ['SVC-01', '10 E 001 SV', 'Chevrolet Cobalt',         'CAR',        'CITY',     'AI92',    44, 88300,     0,  20, 2021],
+    ['SVC-01', '10 E 001 SV', 'Toyota Corolla Hybrid',    'CAR',        'CITY',     'AI92',    43, 88300,     0,  20, 2021, HY_CAR],
     ['SVC-02', '10 E 002 SV', 'Chevrolet Damas',          'MINIBUS',    'CITY',     'AI92',    35, 62740,     0,  16, 2020],
     ['SVC-03', '10 E 003 SV', 'Isuzu texnik xizmat',      'SERVICEVAN', 'HANGAR',   'DT',      90, 51200,     0,  42, 2019],
   ];
@@ -144,17 +147,23 @@ function seedBranch(branchId: number, limit: number) {
   const k = 0.7 + (branchId % 5) * 0.15;
   const r0 = (n: number) => Math.round(n * k);
 
-  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet.slice(0, limit)) {
+  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year, hy] of fleet.slice(0, limit)) {
     const c = get<any>('SELECT * FROM equipment_categories WHERE code = ?', [cat])!;
+    const [f2, tank2, n2km, n2h, bal2] = hy ?? [null, 0, 0, 0, 0];
     run(
       `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
          made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct, norm_engine_hour,
-         init_odometer, init_hours, init_fuel, odometer, hour_meter, fuel_balance)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         fuel_type2_id, tank_capacity2, norm2_per_100km, norm2_engine_hour,
+         init_odometer, init_hours, init_fuel, init_fuel2,
+         odometer, hour_meter, fuel_balance, fuel_balance2)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [branchId, garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
-       fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
+       hy ? 'hybrid'
+          : fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
        year, fuelId(fuel), tank, c.default_norm_km, 10, c.default_norm_hour,
-       r0(odo), r0(hours), fuelBal, r0(odo), r0(hours), fuelBal]
+       f2 ? fuelId(f2) : null, tank2, n2km, n2h,
+       r0(odo), r0(hours), fuelBal, bal2,
+       r0(odo), r0(hours), fuelBal, bal2]
     );
   }
 
@@ -247,11 +256,14 @@ function generateWaybills(branchId: number) {
 
       const res = run(
         `INSERT INTO waybills (branch_id, number, date_from, date_to, vehicle_id, driver_id, status,
-           odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
-           norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, created_by)
-         VALUES (?,?,?,?,?,?,'issued',?,?,?,?,0,?,?,?,?,?,?,?,?,1)`,
-        [branchId, String(number), date, date, v.id, driver.id, odoStart, hoursStart, fuelStart, hours,
-         v.zone_id, shift, winter, v.norm_per_100km, v.norm_engine_hour, v.norm_per_ton_km, v.winter_pct,
+           odo_start, hours_start, fuel_start, fuel2_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
+           norm_per_100km, norm_engine_hour, norm_per_ton_km, norm2_per_100km, norm2_engine_hour,
+           winter_pct, task, created_by)
+         VALUES (?,?,?,?,?,?,'issued',?,?,?,?,?,0,?,?,?,?,?,?,?,?,?,?,1)`,
+        [branchId, String(number), date, date, v.id, driver.id, odoStart, hoursStart, fuelStart,
+         v.fuel_balance2, hours,
+         v.zone_id, shift, winter, v.norm_per_100km, v.norm_engine_hour, v.norm_per_ton_km,
+         v.norm2_per_100km, v.norm2_engine_hour, v.winter_pct,
          ({
            aircraft: 'Havo kemalariga perron xizmati',
            cargo: 'Yuk terminalida yuklash-tushirish',
@@ -314,12 +326,36 @@ function generateWaybills(branchId: number) {
         );
       }
 
+      // Gibrid texnika: batareya alohida zaryadlanadi va alohida hisoblanadi
+      const charge2Start = v.fuel_balance2;
+      let issued2 = 0;
+      const norm2 = v.fuel_type2_id
+        ? r2(((distance / 100) * v.norm2_per_100km + hours * v.norm2_engine_hour) * winterK) : 0;
+      if (v.fuel_type2_id) {
+        const needed2 = norm2 * 1.2;
+        if (charge2Start < needed2 || day % 2 === 0) {
+          const cap2 = v.tank_capacity2 > 0 ? v.tank_capacity2 * 0.9 : needed2 * 3;
+          const target2 = Math.min(cap2, charge2Start + needed2 * 2);
+          issued2 = Math.max(1, Math.round((target2 - charge2Start) * 10) / 10);
+          const price2 = get<{ price: number }>('SELECT price FROM fuel_types WHERE id = ?', [v.fuel_type2_id])?.price ?? 450;
+          run(
+            `INSERT INTO fuel_issues (branch_id, date, vehicle_id, driver_id, waybill_id, fuel_type_id,
+               liters, price, amount, source, station, doc_no, created_by)
+             VALUES (?,?,?,?,?,?,?,?,?,'ombor','Zaryadlash stansiyasi',?,1)`,
+            [branchId, date, v.id, driver.id, wbId, v.fuel_type2_id, issued2, price2, r2(issued2 * price2),
+             `${pad(day)}${pad(month)}-${v.garage_no}-E`]
+          );
+        }
+      }
+
       const drift = 1 + (((day * 13 + vi * 29) % 17) - 8) / 100;
       const fuelEnd = Math.max(0, r2(fuelStart + issued - norm * drift));
+      const fuel2End = v.fuel_type2_id
+        ? Math.max(0, r2(charge2Start + issued2 - norm2 * drift)) : null;
 
-      run(`UPDATE waybills SET odo_end = ?, hours_end = ?, fuel_end = ?, status = 'closed',
+      run(`UPDATE waybills SET odo_end = ?, hours_end = ?, fuel_end = ?, fuel2_end = ?, status = 'closed',
              closed_at = datetime('now'), closed_by = 1 WHERE id = ?`,
-          [odoStart + distance, withHours ? r2(hoursStart + hours) : null, fuelEnd, wbId]);
+          [odoStart + distance, withHours ? r2(hoursStart + hours) : null, fuelEnd, fuel2End, wbId]);
       recalcVehicle(v.id);
     }
   }

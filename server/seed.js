@@ -118,20 +118,23 @@ export function seedFleet(branchId = 1, limit = 99) {
   const zoneId = (code) => get('SELECT id FROM zones WHERE code = ?', [code])?.id ?? null;
   const fuelId = (code) => get('SELECT id FROM fuel_types WHERE code = ?', [code])?.id ?? null;
 
-  // [garaj, raqam, rusum, turkum, zona, yoqilg'i, bak, init_odo, init_hours, init_fuel, yil]
+  // [garaj, raqam, rusum, turkum, zona, yoqilg'i, bak, init_odo, init_hours, init_fuel, yil, gibrid?]
+  // gibrid = [ikkinchi manba kodi, sig'imi, norma/100km, norma/motosoat, boshlang'ich zaryad]
+  const HY_DEICER = ['ELEKTR', 90, 0, 6, 62];   // elektr yuritmali deicer
+  const HY_CAR    = ['ELEKTR', 18, 6.5, 0, 12]; // gibrid yengil avtomobil
   const fleet = [
     ['GSE-01', '10 A 001 AP', 'Goldhofer AST-1X',        'PUSHBACK',   'APRON', 'DT',     240, 18400,  6120, 120, 2019],
     ['GSE-02', '10 A 002 AP', 'TLD TMX-150',             'PUSHBACK',   'APRON', 'DT',     200, 22150,  7340,  95, 2017],
     ['GSE-03', '—',           'TLD GPU-4090',            'GPU',        'APRON', 'DT',     150,     0,  9880,  70, 2018],
     ['GSE-04', '—',           'GUINAULT ASU-600',        'ASU',        'APRON', 'DT',     180,     0,  4210,  85, 2020],
     ['GSE-05', '—',           'TLD ACU-302',             'ACU',        'APRON', 'DT',     160,     0,  3760,  60, 2021],
-    ['GSE-06', '10 A 006 AP', 'Vestergaard Elephant BETA','DEICER',    'APRON', 'DT',     400,  9120,  2480, 210, 2020],
+    ['GSE-06', '10 A 006 AP', 'Vestergaard Elephant BETA e-drive','DEICER','APRON','DT',  400,  9120,  2480, 210, 2020, HY_DEICER],
     ['GSE-07', '10 A 007 AP', 'Mercedes Actros TZ-60',   'REFUELLER',  'APRON', 'DT',     300, 41250,  5610, 140, 2016],
     ['GSE-08', '10 A 008 AP', 'Kamaz AC-45 hydrant',     'HYDRANT',    'APRON', 'DT',     250, 33800,  4950, 115, 2018],
     ['GSE-09', '10 A 009 AP', 'Mallaghan CT6000',        'CATERING',   'APRON', 'DT',     180, 15600,  3120,  80, 2019],
     ['GSE-10', '10 A 010 AP', 'Mallaghan LS500 lavatory','LAVATORY',   'APRON', 'DT',     120, 12480,  2140,  55, 2019],
     ['GSE-11', '10 A 011 AP', 'Mallaghan WS400 water',   'WATER',      'APRON', 'DT',     120, 11350,  1980,  50, 2019],
-    ['GSE-12', '10 A 012 AP', 'Toyota Land Cruiser FM',  'FOLLOWME',   'APRON', 'AI92',    93, 64200,     0,  45, 2021],
+    ['GSE-12', '10 A 012 AP', 'Toyota RAV4 Hybrid (Follow me)','FOLLOWME','APRON','AI92',  55, 64200,     0,  45, 2021, HY_CAR],
     ['GSE-13', '10 A 013 AP', 'Mallaghan PS150',         'AIRSTAIRS',  'APRON', 'DT',     100,  8760,  1520,  42, 2020],
 
     ['GSE-14', '10 B 014 AP', 'Cobus 3000',              'APRONBUS',   'TERMINAL','DT',   250, 96400,     0, 130, 2015],
@@ -165,7 +168,7 @@ export function seedFleet(branchId = 1, limit = 99) {
     ['AFD-07', '—',           'Caterpillar 428 loader',  'LOADER',     'HANGAR','DT',     130,     0,  5620,  60, 2017],
     ['AFD-08', '—',           'FG Wilson P110 generator','GENERATOR',  'HANGAR','DT',     200,     0,  6940,  95, 2015],
 
-    ['SVC-01', '10 E 001 SV', 'Chevrolet Cobalt',        'CAR',        'CITY',  'AI92',    44, 88300,     0,  20, 2021],
+    ['SVC-01', '10 E 001 SV', 'Toyota Corolla Hybrid',   'CAR',        'CITY',  'AI92',    43, 88300,     0,  20, 2021, HY_CAR],
     ['SVC-02', '10 E 002 SV', 'Chevrolet Damas',         'MINIBUS',    'CITY',  'AI92',    35, 62740,     0,  16, 2020],
     ['SVC-03', '10 E 003 SV', 'Isuzu texnik xizmat',     'SERVICEVAN', 'HANGAR','DT',      90, 51200,     0,  42, 2019],
   ];
@@ -174,17 +177,23 @@ export function seedFleet(branchId = 1, limit = 99) {
   const k = 0.7 + (branchId % 5) * 0.15;
   const r0 = (n) => Math.round(n * k);
 
-  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet.slice(0, limit)) {
+  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year, hy] of fleet.slice(0, limit)) {
     const c = get('SELECT * FROM equipment_categories WHERE code = ?', [cat]);
+    const [f2, tank2, n2km, n2h, bal2] = hy ?? [null, 0, 0, 0, 0];
     run(
       `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
          made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct, norm_engine_hour,
-         init_odometer, init_hours, init_fuel, odometer, hour_meter, fuel_balance)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+         fuel_type2_id, tank_capacity2, norm2_per_100km, norm2_engine_hour,
+         init_odometer, init_hours, init_fuel, init_fuel2,
+         odometer, hour_meter, fuel_balance, fuel_balance2)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [branchId, garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
-       fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
+       hy ? 'hybrid'
+          : fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
        year, fuelId(fuel), tank, c.default_norm_km, 10, c.default_norm_hour,
-       r0(odo), r0(hours), fuelBal, r0(odo), r0(hours), fuelBal]
+       f2 ? fuelId(f2) : null, tank2, n2km, n2h,
+       r0(odo), r0(hours), fuelBal, bal2,
+       r0(odo), r0(hours), fuelBal, bal2]
     );
   }
 

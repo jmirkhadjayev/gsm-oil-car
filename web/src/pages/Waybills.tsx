@@ -54,7 +54,9 @@ export default function Waybills() {
       ['№', t('date'), t('shift'), t('garageNo'), t('model'), t('category'), t('zone'), t('driver'),
        t('odoStart'), t('odoEnd'), t('distance'), t('hoursStart'), t('hoursEnd'), t('workedHours'),
        t('flights'), t('cargoTonShort'), t('uldCount'), t('paxCount'),
-       t('fuelStart'), t('fuelIssued'), t('fuelEnd'), t('normLiters'), t('factLiters'), t('deviation'), t('status')],
+       t('fuelStart'), t('fuelIssued'), t('fuelEnd'), t('normLiters'), t('factLiters'), t('deviation'),
+       t('chargeStart'), t('chargeIssued'), t('chargeEnd'),
+       `⚡ ${t('norm2Liters')}`, `⚡ ${t('fact2Liters')}`, t('status')],
       rows.map((w) => [
         w.number, dmy(w.date_from), L.shift[w.shift], w.garage_no, w.model,
         pick(lang, w, 'category_name'), pick(lang, w, 'zone_name'), w.driver_name,
@@ -62,7 +64,11 @@ export default function Waybills() {
         w.hours_start, w.hours_end ?? '', w.worked_hours ?? '',
         w.flights_served ?? 0, w.cargo_ton ?? 0, w.uld_count ?? 0, w.pax_count ?? 0,
         w.fuel_start, w.fuel_issued, w.fuel_end ?? '',
-        w.norm_liters, w.fact_liters ?? '', w.deviation ?? '', w.status,
+        w.norm_liters, w.fact_liters ?? '', w.deviation ?? '',
+        w.fuel_type2_id ? w.fuel2_start : '', w.fuel_type2_id ? w.fuel2_issued : '',
+        w.fuel_type2_id ? (w.fuel2_end ?? '') : '',
+        w.fuel_type2_id ? (w.norm2_liters ?? '') : '', w.fuel_type2_id ? (w.fact2_liters ?? '') : '',
+        w.status,
       ])
     );
   };
@@ -166,10 +172,22 @@ export default function Waybills() {
                     <td className="num">{usesKm(w.norm_basis) && w.distance_km != null ? ni(w.distance_km) : '—'}</td>
                     <td className="num">{usesHours(w.norm_basis) ? nf(w.worked_hours, 1) : '—'}</td>
                     <td className="num">{w.flights_served || '—'}</td>
-                    <td className="num">{nf(w.fuel_issued)}</td>
-                    <td className="num">{nf(w.norm_liters)}</td>
-                    <td className="num">{w.fact_liters == null ? '—' : nf(w.fact_liters)}</td>
-                    <td className="num"><Deviation value={w.deviation} /></td>
+                    <td className="num">
+                      {nf(w.fuel_issued)}
+                      {w.fuel_type2_id ? <div className="volt-sub">⚡ {nf(w.fuel2_issued)}</div> : null}
+                    </td>
+                    <td className="num">
+                      {nf(w.norm_liters)}
+                      {w.fuel_type2_id ? <div className="volt-sub">⚡ {nf(w.norm2_liters ?? 0)}</div> : null}
+                    </td>
+                    <td className="num">
+                      {w.fact_liters == null ? '—' : nf(w.fact_liters)}
+                      {w.fuel_type2_id ? <div className="volt-sub">⚡ {w.fact2_liters == null ? '—' : nf(w.fact2_liters)}</div> : null}
+                    </td>
+                    <td className="num">
+                      <Deviation value={w.deviation} />
+                      {w.fuel_type2_id ? <div className="volt-sub"><Deviation value={w.deviation2} /></div> : null}
+                    </td>
                     <td><StatusBadge status={w.status} /></td>
                     <td className="num" onClick={(e) => e.stopPropagation()}>
                       <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
@@ -224,7 +242,7 @@ export default function Waybills() {
 export function CloseModal({ waybill, onClose, onDone }: {
   waybill: Waybill; onClose: () => void; onDone: () => void;
 }) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const toast = useToast();
   const withKm = usesKm(waybill.norm_basis);
   const withHours = usesHours(waybill.norm_basis);
@@ -232,12 +250,17 @@ export function CloseModal({ waybill, onClose, onDone }: {
   // Operatsiyalardan yig'ilgan motosoat — hisoblagich kiritilmasa shu ishlatiladi
   const opHours = (waybill.routes ?? []).reduce((s, r) => s + (Number(r.op_hours) || 0), 0);
 
+  // Gibrid texnikada ikkinchi manba (batareya) qoldig'i ham yopilishda kiritiladi
+  const hybrid = !!waybill.fuel_type2_id;
+  const unit2 = (lang === 'uz' ? waybill.unit2_uz : waybill.unit2_ru) ?? '';
+
   const [form, setForm] = useState({
     odo_end: String(waybill.odo_end ?? waybill.odo_start),
     hours_end: String(waybill.hours_end ?? (withHours
       ? Math.round(((waybill.hours_start ?? 0) + (opHours || waybill.engine_hours || 0)) * 10) / 10
       : '')),
     fuel_end: String(waybill.fuel_end ?? ''),
+    fuel2_end: String(waybill.fuel2_end ?? ''),
     cargo_ton_km: String(waybill.cargo_ton_km ?? 0),
   });
   const [busy, setBusy] = useState(false);
@@ -254,6 +277,13 @@ export function CloseModal({ waybill, onClose, onDone }: {
   const fact = form.fuel_end === '' ? null : available - Number(form.fuel_end);
   const deviation = fact === null ? null : fact - norm;
 
+  const norm2 = hybrid
+    ? ((distance / 100) * (waybill.norm2_per_100km ?? 0) + hours * (waybill.norm2_engine_hour ?? 0)) * winterK
+    : 0;
+  const available2 = (waybill.fuel2_start ?? 0) + (waybill.fuel2_issued ?? 0);
+  const fact2 = !hybrid || form.fuel2_end === '' ? null : available2 - Number(form.fuel2_end);
+  const deviation2 = fact2 === null ? null : fact2 - norm2;
+
   const submit = async () => {
     setBusy(true);
     try {
@@ -261,6 +291,7 @@ export function CloseModal({ waybill, onClose, onDone }: {
         odo_end: Number(form.odo_end),
         hours_end: withHours && form.hours_end !== '' ? Number(form.hours_end) : null,
         fuel_end: Number(form.fuel_end),
+        ...(hybrid ? { fuel2_end: Number(form.fuel2_end || 0) } : {}),
         engine_hours: hours,
         cargo_ton_km: Number(form.cargo_ton_km || 0),
       });
@@ -282,7 +313,8 @@ export function CloseModal({ waybill, onClose, onDone }: {
       footer={
         <>
           <button className="btn" onClick={onClose}>{t('cancel')}</button>
-          <button className="btn btn-success" onClick={submit} disabled={busy || form.fuel_end === ''}>
+          <button className="btn btn-success" onClick={submit}
+                  disabled={busy || form.fuel_end === '' || (hybrid && form.fuel2_end === '')}>
             ✓ {t('closeWaybill')}
           </button>
         </>
@@ -301,6 +333,10 @@ export function CloseModal({ waybill, onClose, onDone }: {
         )}
         <Input label={`${t('fuelEnd')} (max ${nf(available)})`} type="number" step="0.01"
                value={form.fuel_end} onChange={set('fuel_end')} autoFocus />
+        {hybrid && (
+          <Input label={`⚡ ${t('chargeEnd')} (max ${nf(available2)}${unit2 ? ` ${unit2}` : ''})`} type="number" step="0.01"
+                 value={form.fuel2_end} onChange={set('fuel2_end')} />
+        )}
       </div>
       <div className="form-row">
         <Input label={t('cargoTonKm')} type="number" step="0.1" value={form.cargo_ton_km} onChange={set('cargo_ton_km')} />
@@ -316,6 +352,18 @@ export function CloseModal({ waybill, onClose, onDone }: {
         <MiniStat label={t('deviation')} value={deviation === null ? '—' : `${deviation > 0 ? '+' : ''}${nf(deviation)}`}
                   tone={deviation === null ? undefined : deviation > 0.01 ? 'pos' : deviation < -0.01 ? 'neg' : undefined} />
       </div>
+
+      {hybrid && (
+        <>
+          <div className="section-title">⚡ {t('hybridSource')} {unit2 ? `(${unit2})` : ''}</div>
+          <div className="grid cols-3">
+            <MiniStat label={t('norm2Liters')} value={nf(norm2)} />
+            <MiniStat label={t('fact2Liters')} value={fact2 === null ? '—' : nf(fact2)} />
+            <MiniStat label={t('deviation2')} value={deviation2 === null ? '—' : `${deviation2 > 0 ? '+' : ''}${nf(deviation2)}`}
+                      tone={deviation2 === null ? undefined : deviation2 > 0.01 ? 'pos' : deviation2 < -0.01 ? 'neg' : undefined} />
+          </div>
+        </>
+      )}
     </Modal>
   );
 }

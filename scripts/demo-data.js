@@ -78,7 +78,10 @@ async function main() {
       if ((day * 7 + vi * 3) % 5 >= 3) continue;
 
       const vehicle = await api('GET', `/api/vehicles/${vehicles[vi].id}`);
-      const driver = drivers[(day + vi) % drivers.length];
+      // Haydovchi texnika bilan bir filialdan bo'lishi shart
+      const pool = drivers.filter((d) => d.branch_id === vehicle.branch_id);
+      if (!pool.length) continue;
+      const driver = pool[(day + vi) % pool.length];
       const defaults = await api('GET', `/api/waybills/defaults?vehicle_id=${vehicle.id}&date=${date}`);
       const basis = vehicle.norm_basis;
       const usesKm = basis === 'km' || basis === 'both';
@@ -161,14 +164,37 @@ async function main() {
         });
       }
 
+      // Gibrid texnika: ikkinchi manba (batareya) alohida hisoblanadi va alohida zaryadlanadi
+      let issued2 = 0;
+      const norm2 = vehicle.fuel_type2_id
+        ? ((distance / 100) * wb.norm2_per_100km + hours * wb.norm2_engine_hour) * winterK : 0;
+      if (vehicle.fuel_type2_id) {
+        const needed2 = norm2 * 1.2;
+        if (wb.fuel2_start < needed2 || day % 2 === 0) {
+          const cap2 = vehicle.tank_capacity2 > 0 ? vehicle.tank_capacity2 * 0.9 : needed2 * 3;
+          const target2 = Math.min(cap2, wb.fuel2_start + needed2 * 2);
+          issued2 = Math.max(1, Math.round((target2 - wb.fuel2_start) * 10) / 10);
+          await api('POST', '/api/fuel', {
+            date, vehicle_id: vehicle.id, waybill_id: wb.id, driver_id: driver.id,
+            fuel_type_id: vehicle.fuel_type2_id, liters: issued2,
+            price: vehicle.fuel2_price || 450,
+            source: 'ombor', station: 'Zaryadlash stansiyasi',
+            doc_no: `${pad(day)}${pad(month)}-${vehicle.garage_no}-E`,
+          });
+        }
+      }
+
       const drift = 1 + (((day * 13 + vi * 29) % 17) - 8) / 100;
       const fact = norm * drift;
       const fuelEnd = Math.max(0, Math.round((wb.fuel_start + issued - fact) * 100) / 100);
+      const fact2 = norm2 * drift;
+      const fuel2End = Math.max(0, Math.round((wb.fuel2_start + issued2 - fact2) * 100) / 100);
 
       await api('POST', `/api/waybills/${wb.id}/close`, {
         odo_end: wb.odo_start + distance,
         hours_end: usesHours ? Math.round((wb.hours_start + hours) * 10) / 10 : null,
         fuel_end: fuelEnd,
+        fuel2_end: vehicle.fuel_type2_id ? fuel2End : undefined,
       });
       created++;
     }
