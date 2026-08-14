@@ -7,6 +7,10 @@
   ],
   "columns": [
     { "table": "users",       "column": "branch_id", "type": "INTEGER" },
+    { "table": "users",       "column": "auth_source", "type": "TEXT", "default": "'local'" },
+    { "table": "users",       "column": "email", "type": "TEXT", "default": "''" },
+    { "table": "users",       "column": "ldap_dn", "type": "TEXT", "default": "''" },
+    { "table": "users",       "column": "last_login", "type": "TEXT" },
     { "table": "vehicles",    "column": "branch_id", "type": "INTEGER", "default": "1" },
     { "table": "drivers",     "column": "branch_id", "type": "INTEGER", "default": "1" },
     { "table": "waybills",    "column": "branch_id", "type": "INTEGER", "default": "1" },

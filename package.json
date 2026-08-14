@@ -16,9 +16,15 @@
     "start": "node server/index.js",
     "setup": "npm install && npm --prefix web install && npm run build",
     "seed": "node server/seed.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "test:branches": "node scripts/branch-test.js",
+    "test:ldap": "node scripts/ldap-test.js"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "express": "^4.21.2",
+    "ldapts": "^9.0.0"
+  },
+  "devDependencies": {
+    "ldapjs": "^3.0.7"
   }
 }

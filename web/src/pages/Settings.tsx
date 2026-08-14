@@ -5,7 +5,159 @@ import { pick, useI18n } from '../i18n';
 import { Checkbox, Empty, Input, Loading, Modal, Select, useAsync, useToast } from '../ui';
 import { useAirportLabels } from '../lib/airport';
 
-type Tab = 'org' | 'users' | 'fuel' | 'airport' | 'password' | 'demo';
+type Tab = 'org' | 'users' | 'ldap' | 'fuel' | 'airport' | 'password' | 'demo';
+
+type LdapCfg = {
+  enabled: number; url: string; bind_dn: string; bind_password?: string; has_password?: boolean;
+  base_dn: string; user_filter: string;
+  attr_name: string; attr_mail: string; attr_groups: string;
+  role_map: string; branch_map: string; default_role: string;
+  auto_create: number; allow_local_fallback: number; tls_reject_unauthorized: number;
+};
+
+// --------------------- Katalog (LDAP / Active Directory) ---------------------
+function LdapSettings() {
+  const { t } = useI18n();
+  const toast = useToast();
+  const { data, loading, reload } = useAsync(() => api.get<LdapCfg>('/ldap'), []);
+  const [form, setForm] = useState<LdapCfg | null>(null);
+  const [probe, setProbe] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { if (data) setForm({ ...data, bind_password: '' }); }, [data]);
+  if (loading || !form) return <Loading />;
+
+  const set = (k: keyof LdapCfg) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const v = e.target.type === 'checkbox' ? ((e.target as HTMLInputElement).checked ? 1 : 0) : e.target.value;
+    setForm((f) => ({ ...(f as LdapCfg), [k]: v as never }));
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put('/ldap', form);
+      toast(t('saved'), 'ok');
+      reload();
+      setForm((f) => ({ ...(f as LdapCfg), bind_password: '' }));
+    } catch (e: any) { toast(e.message, 'err'); }
+    finally { setBusy(false); }
+  };
+
+  const test = async () => {
+    setBusy(true);
+    setResult(null);
+    try {
+      setResult(await api.post('/ldap/test', { ...form, probe_user: probe }));
+    } catch (e: any) { setResult({ ok: false, error: e.message }); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="card" style={{ maxWidth: 860 }}>
+      <div className="card-head">
+        <h2>{t('ldapTitle')}</h2>
+        <div className="spacer" />
+        {form.enabled
+          ? <span className="badge green">{t('active')}</span>
+          : <span className="badge">{t('archived')}</span>}
+      </div>
+      <div className="card-body">
+        <Checkbox label={t('ldapEnabled')} checked={!!form.enabled} onChange={set('enabled')} />
+
+        <div className="section-title">{t('ldapUrl')}</div>
+        <div className="form-row">
+          <Input label={t('ldapUrl')} value={form.url} onChange={set('url')}
+                 placeholder="ldap://dc.aeroport.uz:389" />
+          <Input label={t('ldapBaseDn')} value={form.base_dn} onChange={set('base_dn')}
+                 placeholder="dc=aeroport,dc=uz" />
+        </div>
+        <div className="form-row">
+          <Input label={t('ldapBindDn')} value={form.bind_dn} onChange={set('bind_dn')}
+                 placeholder="cn=gsm-service,ou=xizmat,dc=aeroport,dc=uz" />
+          <Input label={t('ldapBindPw')} type="password" value={form.bind_password ?? ''}
+                 onChange={set('bind_password')}
+                 hint={data?.has_password ? t('passwordHint') : undefined} />
+        </div>
+        <Input label={t('ldapFilter')} value={form.user_filter} onChange={set('user_filter')}
+               hint="{{username}} — kiritilgan login o'rniga qo'yiladi" />
+
+        <div className="section-title">{t('ldapAttrs')}</div>
+        <div className="form-row">
+          <Input label={t('ldapAttrName')} value={form.attr_name} onChange={set('attr_name')} />
+          <Input label={t('ldapAttrMail')} value={form.attr_mail} onChange={set('attr_mail')} />
+          <Input label={t('ldapAttrGroups')} value={form.attr_groups} onChange={set('attr_groups')} />
+        </div>
+
+        <div className="section-title">{t('ldapRoleMap')} / {t('ldapBranchMap')}</div>
+        <div className="grid cols-2">
+          <div className="field">
+            <label>{t('ldapRoleMap')}</label>
+            <textarea value={form.role_map} onChange={set('role_map')} rows={5}
+                      placeholder={'gsm-admin = admin\ngsm-dispetcher = dispatcher\ngsm-operator = operator'} />
+            <div className="hint">{t('ldapMapHint')}</div>
+          </div>
+          <div className="field">
+            <label>{t('ldapBranchMap')}</label>
+            <textarea value={form.branch_map} onChange={set('branch_map')} rows={5}
+                      placeholder={'aeroport-tas = TAS\naeroport-skd = SKD\naeroport-bhk = BHK'} />
+            <div className="hint">{t('ldapMapHint')}</div>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <Select label={t('ldapDefaultRole')} value={form.default_role} onChange={set('default_role')}>
+            <option value="viewer">{t('roleViewer')}</option>
+            <option value="operator">{t('roleOperator')}</option>
+            <option value="dispatcher">{t('roleDispatcher')}</option>
+            <option value="admin">{t('roleAdmin')}</option>
+          </Select>
+        </div>
+
+        <Checkbox label={t('ldapAutoCreate')} checked={!!form.auto_create} onChange={set('auto_create')} />
+        <Checkbox label={t('ldapFallback')} checked={!!form.allow_local_fallback} onChange={set('allow_local_fallback')} />
+        <Checkbox label={t('ldapTls')} checked={!!form.tls_reject_unauthorized} onChange={set('tls_reject_unauthorized')} />
+
+        <div className="divider" />
+
+        <div className="form-row" style={{ alignItems: 'end' }}>
+          <Input label={t('ldapProbe')} value={probe} onChange={(e) => setProbe(e.target.value)}
+                 placeholder="a.karimov" />
+          <div className="btn-group" style={{ marginBottom: 15 }}>
+            <button className="btn" onClick={test} disabled={busy || !form.url || !form.base_dn}>
+              {t('ldapTest')}
+            </button>
+            <button className="btn btn-primary" onClick={save} disabled={busy}>{t('save')}</button>
+          </div>
+        </div>
+
+        {result && (
+          <div className={`login-error`} style={{
+            background: result.ok ? 'var(--success-soft)' : 'var(--danger-soft)',
+            color: result.ok ? 'var(--success)' : 'var(--danger)',
+            borderColor: result.ok ? 'var(--success)' : 'var(--danger)',
+          }}>
+            {result.ok ? (
+              <>
+                <b>{t('ldapTestOk')}</b> — {t('ldapFound')}: {result.found}
+                {result.sample?.length > 0 && (
+                  <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                    {result.sample.map((s: any, i: number) => (
+                      <li key={i} className="mono" style={{ fontSize: 13 }}>
+                        {s.name || '—'} · {s.dn}
+                        {s.groups?.length > 0 && <div style={{ opacity: .8 }}>{s.groups.join(', ')}</div>}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
+            ) : <>{result.error}</>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Settings() {
   const { t } = useI18n();
@@ -15,6 +167,7 @@ export default function Settings() {
     { id: 'org', label: t('orgSettings') },
     { id: 'airport', label: `${t('zones')} / ${t('serviceTypes')}` },
     { id: 'users', label: t('users') },
+    ...(LOCAL_MODE ? [] : [{ id: 'ldap' as Tab, label: 'LDAP' }]),
     { id: 'fuel', label: t('fuelPrices') },
     // Demo rejimida parol ishlatilmaydi — uning o'rniga baza boshqaruvi ko'rsatiladi
     ...(LOCAL_MODE
@@ -32,6 +185,7 @@ export default function Settings() {
       {tab === 'org' && <OrgSettings />}
       {tab === 'airport' && <AirportRefs />}
       {tab === 'users' && <Users />}
+      {tab === 'ldap' && <LdapSettings />}
       {tab === 'fuel' && <FuelPrices />}
       {tab === 'password' && <ChangePassword />}
       {tab === 'demo' && <DemoSettings />}

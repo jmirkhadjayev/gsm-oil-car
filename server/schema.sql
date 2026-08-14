@@ -23,12 +23,43 @@ CREATE TABLE IF NOT EXISTS users (
   branch_id     INTEGER REFERENCES branches(id),   -- NULL = bosh ofis
   username      TEXT    NOT NULL UNIQUE,
   full_name     TEXT    NOT NULL,
+  -- local: paroli shu bazada | ldap: korporativ katalogda tekshiriladi
+  auth_source   TEXT    NOT NULL DEFAULT 'local' CHECK (auth_source IN ('local','ldap')),
+  email         TEXT    NOT NULL DEFAULT '',
+  ldap_dn       TEXT    NOT NULL DEFAULT '',       -- katalogdagi to'liq nomi
+  last_login    TEXT,
   password_hash TEXT    NOT NULL,
   -- admin: hammasi | dispatcher: varaqa+yoqilg'i | operator: yoqilg'i | viewer: faqat ko'rish
   role          TEXT    NOT NULL DEFAULT 'operator'
                         CHECK (role IN ('admin','dispatcher','operator','viewer')),
   active        INTEGER NOT NULL DEFAULT 1,
   created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ------------------- LDAP / Active Directory sozlamasi -----------------
+--  Bitta yozuv (id = 1). Bo'sh yoki enabled = 0 bo'lsa — faqat lokal parollar.
+CREATE TABLE IF NOT EXISTS ldap_config (
+  id            INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled       INTEGER NOT NULL DEFAULT 0,
+  url           TEXT NOT NULL DEFAULT '',          -- ldap://dc.aeroport.uz:389
+  bind_dn       TEXT NOT NULL DEFAULT '',          -- qidiruv uchun xizmat hisobi
+  bind_password TEXT NOT NULL DEFAULT '',
+  base_dn       TEXT NOT NULL DEFAULT '',          -- dc=aeroport,dc=uz
+  user_filter   TEXT NOT NULL DEFAULT '(sAMAccountName={{username}})',
+  -- Katalogdagi atributlar nomi (AD va OpenLDAP da farq qiladi)
+  attr_name     TEXT NOT NULL DEFAULT 'displayName',
+  attr_mail     TEXT NOT NULL DEFAULT 'mail',
+  attr_groups   TEXT NOT NULL DEFAULT 'memberOf',
+  -- Guruh → rol va guruh → filial moslashuvi, har qatorda:  guruh_nomi = qiymat
+  role_map      TEXT NOT NULL DEFAULT '',
+  branch_map    TEXT NOT NULL DEFAULT '',
+  default_role  TEXT NOT NULL DEFAULT 'viewer',
+  -- Katalogda topilgan, lekin bazada yo'q xodim avtomatik yaratilsinmi
+  auto_create   INTEGER NOT NULL DEFAULT 1,
+  -- Katalog ishlamay qolsa lokal parol bilan kirishga ruxsat
+  allow_local_fallback INTEGER NOT NULL DEFAULT 1,
+  tls_reject_unauthorized INTEGER NOT NULL DEFAULT 1,
+  updated_at    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS sessions (

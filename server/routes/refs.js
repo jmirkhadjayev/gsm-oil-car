@@ -4,6 +4,7 @@ import { all, get, run, audit } from '../db.js';
 import { requireAuth, hashPassword } from '../auth.js';
 import { recalcVehicle } from '../calc.js';
 import { pushBranch, branchForInsert } from '../branch.js';
+import { ldapConfig, testLdap } from '../ldap.js';
 import { h, str, num, bool, bad, notFound } from '../util.js';
 
 export const router = express.Router();
@@ -392,6 +393,57 @@ router.put('/org', requireAuth(...ADMIN), h((req, res) => {
   );
   audit(req.user.id, 'update', 'org', 1);
   res.json(get('SELECT * FROM org WHERE id = 1'));
+}));
+
+// ======================= LDAP / Active Directory ==========================
+// Parol javobda hech qachon qaytarilmaydi — faqat o'rnatilgani ko'rsatiladi.
+const hideSecret = (c) => ({ ...c, bind_password: undefined, has_password: !!c.bind_password });
+
+router.get('/ldap', requireAuth(...ADMIN), h((req, res) => {
+  if (!req.isHq) throw bad('LDAP sozlamasini faqat bosh ofis boshqaradi');
+  res.json(hideSecret(ldapConfig()));
+}));
+
+router.put('/ldap', requireAuth(...ADMIN), h((req, res) => {
+  if (!req.isHq) throw bad('LDAP sozlamasini faqat bosh ofis boshqaradi');
+  const b = req.body;
+  const cur = ldapConfig();
+  // Parol bo'sh yuborilsa — eskisi saqlanadi
+  const password = str(b.bind_password, 'Parol', { max: 200 }) || cur.bind_password;
+
+  run(
+    `UPDATE ldap_config SET enabled=?, url=?, bind_dn=?, bind_password=?, base_dn=?, user_filter=?,
+       attr_name=?, attr_mail=?, attr_groups=?, role_map=?, branch_map=?, default_role=?,
+       auto_create=?, allow_local_fallback=?, tls_reject_unauthorized=?, updated_at=datetime('now')
+     WHERE id = 1`,
+    [
+      bool(b.enabled), str(b.url, 'Manzil', { max: 200 }), str(b.bind_dn, 'Bind DN', { max: 300 }),
+      password, str(b.base_dn, 'Base DN', { max: 300 }),
+      str(b.user_filter, 'Filtr', { max: 300 }) || '(sAMAccountName={{username}})',
+      str(b.attr_name, 'Ism atributi', { max: 60 }) || 'displayName',
+      str(b.attr_mail, 'Pochta atributi', { max: 60 }) || 'mail',
+      str(b.attr_groups, 'Guruh atributi', { max: 60 }) || 'memberOf',
+      str(b.role_map, 'Rollar moslashuvi', { max: 2000 }),
+      str(b.branch_map, 'Filiallar moslashuvi', { max: 2000 }),
+      str(b.default_role, 'Standart rol', { max: 20 }) || 'viewer',
+      bool(b.auto_create ?? 1), bool(b.allow_local_fallback ?? 1), bool(b.tls_reject_unauthorized ?? 1),
+    ]
+  );
+  audit(req.user.id, 'update', 'ldap_config', 1);
+  res.json(hideSecret(ldapConfig()));
+}));
+
+router.post('/ldap/test', requireAuth(...ADMIN), h(async (req, res) => {
+  if (!req.isHq) throw bad('LDAP sozlamasini faqat bosh ofis boshqaradi');
+  const cur = ldapConfig();
+  const cfg = { ...cur, ...req.body };
+  if (!str(req.body.bind_password, 'p', { max: 200 })) cfg.bind_password = cur.bind_password;
+  if (!cfg.url || !cfg.base_dn) throw bad('Manzil va Base DN to\'ldirilishi shart');
+  try {
+    res.json(await testLdap(cfg, str(req.body.probe_user, 'probe', { max: 60 })));
+  } catch (err) {
+    res.status(200).json({ ok: false, error: err.message });
+  }
 }));
 
 // ============================ Foydalanuvchilar ============================
