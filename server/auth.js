@@ -36,8 +36,12 @@ export function destroySession(token) {
 function userFromToken(token) {
   if (!token) return null;
   const row = get(
-    `SELECT u.id, u.username, u.full_name, u.role, u.active, s.expires_at
-       FROM sessions s JOIN users u ON u.id = s.user_id
+    `SELECT u.id, u.username, u.full_name, u.role, u.active, u.branch_id,
+            b.code AS branch_code, b.name_uz AS branch_name_uz, b.name_ru AS branch_name_ru,
+            s.expires_at
+       FROM sessions s
+       JOIN users u ON u.id = s.user_id
+       LEFT JOIN branches b ON b.id = u.branch_id
       WHERE s.token = ?`,
     [token]
   );

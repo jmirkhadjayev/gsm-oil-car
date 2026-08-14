@@ -5,9 +5,22 @@
 
 PRAGMA foreign_keys = ON;
 
+-- ============================ FILIALLAR ==============================
+--  Har bir aeroport — alohida filial. Ma'lumotlar bitta bazada saqlanadi,
+--  ajratish har bir yozuvdagi branch_id orqali amalga oshiriladi.
+--  users.branch_id = NULL  →  bosh ofis: barcha filiallarni ko'radi.
+CREATE TABLE IF NOT EXISTS branches (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  code    TEXT NOT NULL UNIQUE,          -- IATA kodi: TAS, SKD, BHK, KSQ
+  name_uz TEXT NOT NULL,
+  name_ru TEXT NOT NULL,
+  active  INTEGER NOT NULL DEFAULT 1
+);
+
 -- ------------------------- Foydalanuvchilar --------------------------
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id     INTEGER REFERENCES branches(id),   -- NULL = bosh ofis
   username      TEXT    NOT NULL UNIQUE,
   full_name     TEXT    NOT NULL,
   password_hash TEXT    NOT NULL,
@@ -98,7 +111,9 @@ CREATE TABLE IF NOT EXISTS service_types (
 -- ---------------------- Texnika (avtomobil va GSE) -----------------------
 CREATE TABLE IF NOT EXISTS vehicles (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
-  garage_no        TEXT NOT NULL UNIQUE,          -- garaj / inventar raqami
+  branch_id        INTEGER NOT NULL DEFAULT 1 REFERENCES branches(id),
+  -- Garaj raqami filial ichida noyob: ikki aeroportda GSE-01 bo'lishi mumkin
+  garage_no        TEXT NOT NULL,
   plate            TEXT NOT NULL,                 -- davlat raqami (perron texnikasida bo'lmasligi mumkin)
   model            TEXT NOT NULL,
   category_id      INTEGER REFERENCES equipment_categories(id),
@@ -131,10 +146,13 @@ CREATE TABLE IF NOT EXISTS vehicles (
 );
 CREATE INDEX IF NOT EXISTS idx_vehicles_active ON vehicles(active);
 CREATE INDEX IF NOT EXISTS idx_vehicles_category ON vehicles(category_id);
+CREATE INDEX IF NOT EXISTS idx_vehicles_branch ON vehicles(branch_id);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_vehicles_branch_garage ON vehicles(branch_id, garage_no);
 
 -- ------------------ Haydovchilar / texnika operatorlari ----------------
 CREATE TABLE IF NOT EXISTS drivers (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id  INTEGER NOT NULL DEFAULT 1 REFERENCES branches(id),
   full_name  TEXT NOT NULL,
   tab_no     TEXT NOT NULL DEFAULT '',            -- tabel raqami
   license_no TEXT NOT NULL DEFAULT '',            -- guvohnoma
@@ -152,7 +170,8 @@ CREATE INDEX IF NOT EXISTS idx_drivers_active ON drivers(active);
 -- ------------------------- Yo'l varaqalari ---------------------------
 CREATE TABLE IF NOT EXISTS waybills (
   id             INTEGER PRIMARY KEY AUTOINCREMENT,
-  number         TEXT    NOT NULL UNIQUE,
+  branch_id      INTEGER NOT NULL DEFAULT 1 REFERENCES branches(id),
+  number         TEXT    NOT NULL,          -- filial ichida noyob
   date_from      TEXT    NOT NULL,                -- YYYY-MM-DD
   date_to        TEXT    NOT NULL,
   vehicle_id     INTEGER NOT NULL REFERENCES vehicles(id),
@@ -189,6 +208,8 @@ CREATE INDEX IF NOT EXISTS idx_waybills_date    ON waybills(date_from);
 CREATE INDEX IF NOT EXISTS idx_waybills_vehicle ON waybills(vehicle_id, date_from);
 CREATE INDEX IF NOT EXISTS idx_waybills_driver  ON waybills(driver_id, date_from);
 CREATE INDEX IF NOT EXISTS idx_waybills_status  ON waybills(status);
+CREATE INDEX IF NOT EXISTS idx_waybills_branch  ON waybills(branch_id, date_from);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_waybills_branch_number ON waybills(branch_id, number);
 
 -- ---------------------- Bajarilgan ishlar qatorlari ----------------------
 --  Bitta jadval ikki xil ishlatiladi:
@@ -223,6 +244,7 @@ CREATE INDEX IF NOT EXISTS idx_routes_flight  ON waybill_routes(flight_no);
 -- --------------------- Yoqilg'i quyish (kirim) -----------------------
 CREATE TABLE IF NOT EXISTS fuel_issues (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  branch_id    INTEGER NOT NULL DEFAULT 1 REFERENCES branches(id),
   date         TEXT    NOT NULL,                  -- YYYY-MM-DD
   vehicle_id   INTEGER NOT NULL REFERENCES vehicles(id),
   driver_id    INTEGER REFERENCES drivers(id),
@@ -276,6 +298,7 @@ SELECT
   v.category_id, ec.code AS category_code, ec.group_code,
   ec.name_uz AS category_name_uz, ec.name_ru AS category_name_ru,
   z.code AS zone_code, z.name_uz AS zone_name_uz, z.name_ru AS zone_name_ru,
+  br.code AS branch_code, br.name_uz AS branch_name_uz, br.name_ru AS branch_name_ru,
   ft.code AS fuel_code, ft.name_uz AS fuel_name_uz, ft.name_ru AS fuel_name_ru,
   ft.unit_uz, ft.unit_ru,
   d.full_name AS driver_name, d.tab_no, d.position,
@@ -307,6 +330,7 @@ JOIN fuel_types ft ON ft.id = v.fuel_type_id
 JOIN drivers    d  ON d.id = w.driver_id
 LEFT JOIN equipment_categories ec ON ec.id = v.category_id
 LEFT JOIN zones z ON z.id = COALESCE(w.zone_id, v.zone_id)
+LEFT JOIN branches br ON br.id = w.branch_id
 LEFT JOIN (
   SELECT waybill_id, SUM(liters) AS liters
   FROM fuel_issues WHERE waybill_id IS NOT NULL GROUP BY waybill_id

@@ -37,6 +37,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     headers: {
       ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(getBranch() ? { 'X-Branch-Id': getBranch() } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -71,7 +72,23 @@ export function qs(params: Record<string, unknown>) {
 
 // ------------------------------- Turlar -------------------------------
 export type Role = 'admin' | 'dispatcher' | 'operator' | 'viewer';
-export type User = { id: number; username: string; full_name: string; role: Role; active?: number };
+
+export type Branch = { id: number; code: string; name_uz: string; name_ru: string; active: number };
+
+export type User = {
+  id: number; username: string; full_name: string; role: Role; active?: number;
+  /** null → bosh ofis: barcha filiallarni ko'radi */
+  branch_id: number | null;
+  branch_code?: string | null; branch_name_uz?: string | null; branch_name_ru?: string | null;
+};
+
+/** Bosh ofis tanlagan filial — barcha so'rovlarga sarlavha sifatida qo'shiladi. */
+const BRANCH_KEY = 'gsm_branch';
+export const getBranch = () => localStorage.getItem(BRANCH_KEY) || '';
+export const setBranch = (id: string) => {
+  if (id) localStorage.setItem(BRANCH_KEY, id);
+  else localStorage.removeItem(BRANCH_KEY);
+};
 
 export type FuelType = {
   id: number; code: string; name_uz: string; name_ru: string;

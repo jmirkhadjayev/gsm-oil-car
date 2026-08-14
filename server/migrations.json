@@ -6,6 +6,12 @@
     "Migratsiya schema.sql dan OLDIN bajariladi — v_waybill_calc yangi ustunlarga tayanadi."
   ],
   "columns": [
+    { "table": "users",       "column": "branch_id", "type": "INTEGER" },
+    { "table": "vehicles",    "column": "branch_id", "type": "INTEGER", "default": "1" },
+    { "table": "drivers",     "column": "branch_id", "type": "INTEGER", "default": "1" },
+    { "table": "waybills",    "column": "branch_id", "type": "INTEGER", "default": "1" },
+    { "table": "fuel_issues", "column": "branch_id", "type": "INTEGER", "default": "1" },
+
     { "table": "vehicles", "column": "category_id", "type": "INTEGER" },
     { "table": "vehicles", "column": "zone_id", "type": "INTEGER" },
     { "table": "vehicles", "column": "norm_basis", "type": "TEXT", "default": "'km'" },

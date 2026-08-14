@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { dbPath, run } from './db.js';
 import { seed } from './seed.js';
 import { attachUser } from './auth.js';
+import { attachBranch } from './branch.js';
 import { HttpError } from './util.js';
 
 import { router as authRouter } from './routes/auth.js';
@@ -27,6 +28,7 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '1mb' }));
 app.use(attachUser);
+app.use(attachBranch);
 
 app.use('/api/auth', authRouter);
 app.use('/api', refsRouter);

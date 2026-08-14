@@ -4,6 +4,7 @@ import { all, get, run, tx, audit } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { recalcVehicle, isWinterDate, r2 } from '../calc.js';
 import { h, str, num, optNum, bool, date, bad, notFound, today, monthRange } from '../util.js';
+import { pushBranch, branchForInsert } from '../branch.js';
 
 export const router = express.Router();
 const EDIT = ['admin', 'dispatcher'];
@@ -22,11 +23,12 @@ function loadFull(id) {
   return w;
 }
 
-/** Keyingi bo'sh raqam (butun sonli raqamlar orasidan eng kattasi + 1). */
-function nextNumber() {
+/** Keyingi bo'sh raqam — filial ichida (har filialning o'z raqamlash ketma-ketligi). */
+function nextNumber(branchId) {
   const row = get(
     `SELECT MAX(CAST(number AS INTEGER)) AS m FROM waybills
-      WHERE number GLOB '[0-9]*' AND CAST(number AS INTEGER) > 0`
+      WHERE branch_id = ? AND number GLOB '[0-9]*' AND CAST(number AS INTEGER) > 0`,
+    [branchId]
   );
   return String((Number(row?.m) || 0) + 1);
 }
@@ -35,6 +37,7 @@ function nextNumber() {
 router.get('/', requireAuth(), h((req, res) => {
   const where = [];
   const params = [];
+  pushBranch(where, params, req);
   const from = str(req.query.from, 'from');
   const to = str(req.query.to, 'to');
   if (from) { where.push('date_from >= ?'); params.push(from); }
@@ -60,7 +63,7 @@ router.get('/', requireAuth(), h((req, res) => {
   res.json({ rows, total, limit, offset });
 }));
 
-router.get('/next-number', requireAuth(), h((_req, res) => res.json({ number: nextNumber() })));
+router.get('/next-number', requireAuth(), h((req, res) => res.json({ number: nextNumber(req.branchId ?? 1) })));
 
 // Yangi varaqa uchun boshlang'ich qiymatlar (avtomobil holatidan)
 router.get('/defaults', requireAuth(), h((req, res) => {
@@ -70,7 +73,7 @@ router.get('/defaults', requireAuth(), h((req, res) => {
   const org = get('SELECT winter_months FROM org WHERE id = 1');
   const d = str(req.query.date, 'date') || today();
   res.json({
-    number: nextNumber(),
+    number: nextNumber(v.branch_id),
     odo_start: v.odometer,
     hours_start: v.hour_meter,
     fuel_start: v.fuel_balance,
@@ -162,20 +165,25 @@ router.post('/', requireAuth(...EDIT), h((req, res) => {
   if (!vehicle.active) throw bad('Avtomobil arxivda');
   const driver = get('SELECT * FROM drivers WHERE id = ?', [Number(b.driver_id)]);
   if (!driver) throw bad('Haydovchi tanlanmagan');
+  if (driver.branch_id !== vehicle.branch_id) throw bad('Haydovchi boshqa filialga tegishli');
 
-  const number = str(b.number, 'Varaqa raqami', { max: 30 }) || nextNumber();
-  if (get('SELECT id FROM waybills WHERE number = ?', [number])) throw bad(`№ ${number} varaqa allaqachon mavjud`);
+  // Varaqa texnika qaysi filialda bo'lsa, o'sha filialga tegishli
+  const branchId = vehicle.branch_id;
+  const number = str(b.number, 'Varaqa raqami', { max: 30 }) || nextNumber(branchId);
+  if (get('SELECT id FROM waybills WHERE number = ? AND branch_id = ?', [number, branchId])) {
+    throw bad(`Bu filialda № ${number} varaqa allaqachon mavjud`);
+  }
 
   const f = baseBody(b, vehicle);
   const status = ['draft', 'issued'].includes(b.status) ? b.status : 'issued';
 
   const id = tx(() => {
     const r = run(
-      `INSERT INTO waybills (number, date_from, date_to, vehicle_id, driver_id, status,
+      `INSERT INTO waybills (branch_id, number, date_from, date_to, vehicle_id, driver_id, status,
          odo_start, hours_start, fuel_start, engine_hours, cargo_ton_km, zone_id, shift, winter,
          norm_per_100km, norm_engine_hour, norm_per_ton_km, winter_pct, task, notes, created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [number, f.date_from, f.date_to, vehicle.id, driver.id, status,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [branchId, number, f.date_from, f.date_to, vehicle.id, driver.id, status,
        f.odo_start, f.hours_start, f.fuel_start, f.engine_hours, f.cargo_ton_km, f.zone_id, f.shift, f.winter,
        f.norm_per_100km, f.norm_engine_hour, f.norm_per_ton_km, f.winter_pct, f.task, f.notes, req.user.id]
     );
@@ -203,8 +211,9 @@ router.put('/:id', requireAuth(...EDIT), h((req, res) => {
   if (!driver) throw bad('Haydovchi topilmadi');
 
   const number = str(b.number, 'Varaqa raqami', { max: 30 }) || cur.number;
-  if (get('SELECT id FROM waybills WHERE number = ? AND id <> ?', [number, id])) {
-    throw bad(`№ ${number} varaqa allaqachon mavjud`);
+  if (get('SELECT id FROM waybills WHERE number = ? AND branch_id = ? AND id <> ?',
+          [number, cur.branch_id, id])) {
+    throw bad(`Bu filialda № ${number} varaqa allaqachon mavjud`);
   }
 
   const f = baseBody(b, vehicle);

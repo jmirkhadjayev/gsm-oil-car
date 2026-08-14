@@ -9,6 +9,12 @@ const pad = (n: number) => String(n).padStart(2, '0');
 type CatalogItem = { code: string; uz: string; ru: string; group: string; basis: string; km: number; hour: number };
 
 export function seedReference() {
+  // Demoda bitta filial (Toshkent) — barcha yozuvlar branch_id = 1 bilan ketadi
+  if (!get('SELECT id FROM branches WHERE code = ?', ['TAS'])) {
+    run('INSERT INTO branches (id, code, name_uz, name_ru) VALUES (1,?,?,?)',
+        ['TAS', 'Toshkent xalqaro aeroporti', 'Международный аэропорт Ташкент']);
+  }
+
   if (!get('SELECT id FROM org WHERE id = 1')) {
     run(`INSERT INTO org (id, name, inn, address, phone, director, mechanic)
          VALUES (1, ?, ?, ?, ?, ?, ?)`,

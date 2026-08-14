@@ -9,7 +9,21 @@ import { hashPassword } from './auth.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const catalog = JSON.parse(fs.readFileSync(path.join(here, 'catalog.json'), 'utf8'));
 
+// Filiallar — O'zbekiston aeroportlari (IATA kodi bo'yicha)
+const BRANCHES = [
+  ['TAS', 'Toshkent xalqaro aeroporti',   'Международный аэропорт Ташкент'],
+  ['SKD', 'Samarqand xalqaro aeroporti',  'Международный аэропорт Самарканд'],
+  ['BHK', 'Buxoro xalqaro aeroporti',     'Международный аэропорт Бухара'],
+  ['KSQ', 'Qarshi aeroporti',             'Аэропорт Карши'],
+];
+
 export function seed({ demo = false, log = () => {} } = {}) {
+  for (const [code, uz, ru] of BRANCHES) {
+    if (!get('SELECT id FROM branches WHERE code = ?', [code])) {
+      run('INSERT INTO branches (code, name_uz, name_ru) VALUES (?,?,?)', [code, uz, ru]);
+    }
+  }
+
   if (!get('SELECT id FROM org WHERE id = 1')) {
     run(
       `INSERT INTO org (id, name, inn, address, phone, director, mechanic)
@@ -66,22 +80,40 @@ export function seed({ demo = false, log = () => {} } = {}) {
     + `${all('SELECT id FROM zones').length} zona, ${all('SELECT id FROM service_types').length} xizmat turi`);
 
   if (!get('SELECT id FROM users LIMIT 1')) {
+    // branch_id = NULL → bosh ofis: barcha filiallarni ko'radi
     run(
-      'INSERT INTO users (username, full_name, password_hash, role) VALUES (?,?,?,?)',
-      ['admin', 'Administrator', hashPassword('admin'), 'admin']
+      'INSERT INTO users (username, full_name, password_hash, role, branch_id) VALUES (?,?,?,?,NULL)',
+      ['admin', 'Bosh ofis administratori', hashPassword('admin'), 'admin']
     );
-    log('• Admin yaratildi — login: admin / parol: admin  (albatta o\'zgartiring!)');
+    // Har bir filial uchun administrator: tas / skd / bhk / ksq, parol — login bilan bir xil
+    for (const [code, uz] of BRANCHES) {
+      const b = get('SELECT id FROM branches WHERE code = ?', [code]);
+      run(
+        'INSERT INTO users (username, full_name, password_hash, role, branch_id) VALUES (?,?,?,?,?)',
+        [code.toLowerCase(), `${uz} — administrator`, hashPassword(code.toLowerCase()), 'admin', b.id]
+      );
+    }
+    log('• Foydalanuvchilar: admin/admin (bosh ofis) va tas, skd, bhk, ksq (filiallar)');
   }
 
   if (demo && !get('SELECT id FROM vehicles LIMIT 1')) {
-    seedFleet();
-    log(`• Namuna aeroport parki: ${all('SELECT id FROM vehicles').length} texnika, `
-      + `${all('SELECT id FROM drivers').length} xodim`);
+    // Toshkent — to'liq park, qolgan aeroportlar kichikroq
+    const size = { TAS: 44, SKD: 20, BHK: 14, KSQ: 9 };
+    for (const [code] of BRANCHES) {
+      const b = get('SELECT id FROM branches WHERE code = ?', [code]);
+      seedFleet(b.id, size[code]);
+    }
+    log(`• Namuna park: ${all('SELECT id FROM vehicles').length} texnika, `
+      + `${all('SELECT id FROM drivers').length} xodim, ${BRANCHES.length} filial`);
   }
 }
 
-/** Namuna aeroport texnika parki va xodimlar. */
-export function seedFleet() {
+/**
+ * Namuna texnika parki va xodimlar.
+ * @param branchId  qaysi filialga
+ * @param limit     nechta birlik (ro'yxat boshidan)
+ */
+export function seedFleet(branchId = 1, limit = 99) {
   const catId = (code) => get('SELECT id FROM equipment_categories WHERE code = ?', [code])?.id ?? null;
   const zoneId = (code) => get('SELECT id FROM zones WHERE code = ?', [code])?.id ?? null;
   const fuelId = (code) => get('SELECT id FROM fuel_types WHERE code = ?', [code])?.id ?? null;
@@ -138,17 +170,21 @@ export function seedFleet() {
     ['SVC-03', '10 E 003 SV', 'Isuzu texnik xizmat',     'SERVICEVAN', 'HANGAR','DT',      90, 51200,     0,  42, 2019],
   ];
 
-  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet) {
+  // Filiallar bir-biriga o'xshamasligi uchun hisoblagichlar biroz farqlanadi
+  const k = 0.7 + (branchId % 5) * 0.15;
+  const r0 = (n) => Math.round(n * k);
+
+  for (const [garage, plate, model, cat, zone, fuel, tank, odo, hours, fuelBal, year] of fleet.slice(0, limit)) {
     const c = get('SELECT * FROM equipment_categories WHERE code = ?', [cat]);
     run(
-      `INSERT INTO vehicles (garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
+      `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
          made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct, norm_engine_hour,
          init_odometer, init_hours, init_fuel, odometer, hour_meter, fuel_balance)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [branchId, garage, plate, model, catId(cat), zoneId(zone), c.norm_basis,
        fuel === 'ELEKTR' ? 'electric' : fuel === 'PROPAN' ? 'gas' : fuel === 'DT' ? 'diesel' : 'petrol',
        year, fuelId(fuel), tank, c.default_norm_km, 10, c.default_norm_hour,
-       odo, hours, fuelBal, odo, hours, fuelBal]
+       r0(odo), r0(hours), fuelBal, r0(odo), r0(hours), fuelBal]
     );
   }
 
@@ -164,11 +200,12 @@ export function seedFleet() {
     ['Abdullayev Shohruh Baxodirovich','109', 'AB3334445', '+998 93 901-23-45', 'C',       'mechanic', 'AP-1050'],
     ['Qosimov Aziz Tolibovich',        '110', 'AB6667778', '+998 94 012-34-56', 'B, C',    'loader',   'AP-1051'],
   ];
-  for (const [name, tab, lic, phone, cls, pos, permit] of staff) {
+  const staffCount = Math.max(4, Math.round(staff.length * Math.min(1, limit / 44)));
+  for (const [name, tab, lic, phone, cls, pos, permit] of staff.slice(0, staffCount)) {
     run(
-      `INSERT INTO drivers (full_name, tab_no, license_no, phone, class, position, apron_permit)
-       VALUES (?,?,?,?,?,?,?)`,
-      [name, tab, lic, phone, cls, pos, permit]
+      `INSERT INTO drivers (branch_id, full_name, tab_no, license_no, phone, class, position, apron_permit)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      [branchId, name, `${branchId}${tab}`, lic, phone, cls, pos, permit]
     );
   }
 }

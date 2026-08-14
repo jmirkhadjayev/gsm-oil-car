@@ -100,6 +100,15 @@ a:hover { text-decoration: underline; }
 .brand-name { font-weight: 700; font-size: 15px; }
 .brand-sub { font-size: 11px; color: var(--text-muted); }
 
+/* Filial ko'rsatkichi — brend ostida, navigatsiya ustida */
+.branch-bar { padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--surface-2); }
+.branch-label {
+  display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--text-muted); margin-bottom: 4px;
+}
+.branch-name { font-size: 13.5px; font-weight: 600; line-height: 1.3; }
+.branch-bar select { font-size: 13px; padding: 5px 8px; }
+
 .nav { padding: 10px; flex: 1; overflow-y: auto; }
 .nav a {
   display: flex; align-items: center; gap: 10px;

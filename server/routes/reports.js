@@ -14,6 +14,13 @@ function period(req) {
   };
 }
 
+/**
+ * Filial sharti. Qiymat Number() dan o'tkaziladi, shuning uchun uni to'g'ridan-to'g'ri
+ * so'rovga qo'yish xavfsiz — hisobot so'rovlarida parametr tartibini buzmaslik uchun shunday.
+ */
+const AND_B = (req, col = 'branch_id') => (req.branchId ? ` AND ${col} = ${Number(req.branchId)}` : '');
+const WHERE_B = (req, col = 'branch_id') => (req.branchId ? ` WHERE ${col} = ${Number(req.branchId)}` : '');
+
 // Yopilgan varaqalar bo'yicha yig'indi (period ichida)
 const WB_AGG = `
   SELECT vehicle_id, driver_id, category_id, zone_code,
@@ -28,14 +35,17 @@ const WB_AGG = `
          COALESCE(SUM(norm_liters),0)  AS norm_liters,
          COALESCE(SUM(fact_liters),0)  AS fact_liters
     FROM v_waybill_calc
-   WHERE status = 'closed' AND date_from BETWEEN ? AND ?
+   WHERE status = 'closed' AND date_from BETWEEN ? AND ? %BRANCH%
    GROUP BY %GROUP%`;
 
 const FUEL_AGG = `
   SELECT vehicle_id,
          COALESCE(SUM(liters),0) AS issued_liters,
          COALESCE(SUM(amount),0) AS issued_amount
-    FROM fuel_issues WHERE date BETWEEN ? AND ? GROUP BY vehicle_id`;
+    FROM fuel_issues WHERE date BETWEEN ? AND ? %BRANCH% GROUP BY vehicle_id`;
+
+/** WB_AGG / FUEL_AGG shablonlarini filial sharti bilan to'ldiradi. */
+const agg = (tpl, req, group) => tpl.replace('%BRANCH%', AND_B(req)).replace('%GROUP%', group ?? '');
 
 // --------------------------- Avtomobillar kesimi ---------------------------
 router.get('/vehicles', requireAuth(), h((req, res) => {
@@ -67,9 +77,10 @@ router.get('/vehicles', requireAuth(), h((req, res) => {
        JOIN fuel_types ft ON ft.id = v.fuel_type_id
        LEFT JOIN equipment_categories ec ON ec.id = v.category_id
        LEFT JOIN zones z ON z.id = v.zone_id
-       LEFT JOIN (${WB_AGG.replace('%GROUP%', 'vehicle_id')}) w ON w.vehicle_id = v.id
-       LEFT JOIN (${FUEL_AGG}) f ON f.vehicle_id = v.id
-      WHERE COALESCE(w.waybills,0) > 0 OR COALESCE(f.issued_liters,0) > 0 OR v.active = 1
+       LEFT JOIN (${agg(WB_AGG, req, 'vehicle_id')}) w ON w.vehicle_id = v.id
+       LEFT JOIN (${agg(FUEL_AGG, req)}) f ON f.vehicle_id = v.id
+      WHERE (COALESCE(w.waybills,0) > 0 OR COALESCE(f.issued_liters,0) > 0 OR v.active = 1)
+        ${AND_B(req, 'v.branch_id')}
       ORDER BY ec.group_code, v.garage_no`,
     [from, to, from, to]
   );
@@ -81,7 +92,8 @@ router.get('/categories', requireAuth(), h((req, res) => {
   const { from, to } = period(req);
   const rows = all(
     `SELECT ec.id, ec.code, ec.name_uz, ec.name_ru, ec.group_code, ec.norm_basis,
-            (SELECT COUNT(*) FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1) AS units,
+            (SELECT COUNT(*) FROM vehicles v
+              WHERE v.category_id = ec.id AND v.active = 1 ${AND_B(req, 'v.branch_id')}) AS units,
             COALESCE(w.waybills,0)     AS waybills,
             COALESCE(w.distance_km,0)  AS distance_km,
             COALESCE(w.engine_hours,0) AS engine_hours,
@@ -91,9 +103,10 @@ router.get('/categories', requireAuth(), h((req, res) => {
             COALESCE(w.fact_liters,0)  AS fact_liters,
             ROUND(COALESCE(w.fact_liters,0) - COALESCE(w.norm_liters,0), 2) AS deviation
        FROM equipment_categories ec
-       LEFT JOIN (${WB_AGG.replace('%GROUP%', 'category_id')}) w ON w.category_id = ec.id
+       LEFT JOIN (${agg(WB_AGG, req, 'category_id')}) w ON w.category_id = ec.id
       WHERE COALESCE(w.waybills,0) > 0
-         OR EXISTS (SELECT 1 FROM vehicles v WHERE v.category_id = ec.id AND v.active = 1)
+         OR EXISTS (SELECT 1 FROM vehicles v
+                     WHERE v.category_id = ec.id AND v.active = 1 ${AND_B(req, 'v.branch_id')})
       ORDER BY ec.group_code, COALESCE(w.fact_liters,0) DESC, ec.name_uz`,
     [from, to]
   );
@@ -118,7 +131,7 @@ router.get('/zones', requireAuth(), h((req, res) => {
             COALESCE(SUM(fact_liters),0)    AS fact_liters,
             ROUND(COALESCE(SUM(fact_liters),0) - COALESCE(SUM(norm_liters),0), 2) AS deviation
        FROM v_waybill_calc
-      WHERE status = 'closed' AND date_from BETWEEN ? AND ?
+      WHERE status = 'closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}
       GROUP BY zone_code ORDER BY fact_liters DESC`,
     [from, to]
   );
@@ -138,7 +151,7 @@ router.get('/flights', requireAuth(), h((req, res) => {
        JOIN waybills w ON w.id = r.waybill_id
        JOIN v_waybill_calc c ON c.id = w.id
        LEFT JOIN service_types st ON st.id = r.service_type_id
-      WHERE TRIM(r.flight_no) <> '' AND w.date_from BETWEEN ? AND ?
+      WHERE TRIM(r.flight_no) <> '' AND w.date_from BETWEEN ? AND ? ${AND_B(req, 'w.branch_id')}
       ORDER BY w.date_from DESC, r.flight_no, r.seq
       LIMIT 500`,
     [from, to]
@@ -167,8 +180,8 @@ router.get('/drivers', requireAuth(), h((req, res) => {
             COALESCE(w.fact_liters,0)  AS fact_liters,
             ROUND(COALESCE(w.fact_liters,0) - COALESCE(w.norm_liters,0), 2) AS deviation
        FROM drivers d
-       LEFT JOIN (${WB_AGG.replace('%GROUP%', 'driver_id')}) w ON w.driver_id = d.id
-      WHERE COALESCE(w.waybills,0) > 0 OR d.active = 1
+       LEFT JOIN (${agg(WB_AGG, req, 'driver_id')}) w ON w.driver_id = d.id
+      WHERE (COALESCE(w.waybills,0) > 0 OR d.active = 1) ${AND_B(req, 'd.branch_id')}
       ORDER BY d.full_name`,
     [from, to]
   );
@@ -204,21 +217,21 @@ router.get('/monthly', requireAuth(), h((req, res) => {
             (SELECT COUNT(*) FROM waybills w
               WHERE w.status='closed' AND substr(w.date_from,1,7) = ? || '-' || m.month) AS waybills,
             (SELECT COALESCE(SUM(distance_km),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS distance_km,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS distance_km,
             (SELECT COALESCE(SUM(worked_hours),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS engine_hours,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS engine_hours,
             (SELECT COALESCE(SUM(flights_served),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS flights,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS flights,
             (SELECT COALESCE(SUM(cargo_ton),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS cargo_ton,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS cargo_ton,
             (SELECT COALESCE(SUM(norm_liters),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS norm_liters,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS norm_liters,
             (SELECT COALESCE(SUM(fact_liters),0) FROM v_waybill_calc c
-              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month) AS fact_liters,
+              WHERE c.status='closed' AND substr(c.date_from,1,7) = ? || '-' || m.month ${AND_B(req, 'c.branch_id')}) AS fact_liters,
             (SELECT COALESCE(SUM(liters),0) FROM fuel_issues f
-              WHERE substr(f.date,1,7) = ? || '-' || m.month) AS issued_liters,
+              WHERE substr(f.date,1,7) = ? || '-' || m.month ${AND_B(req, 'f.branch_id')}) AS issued_liters,
             (SELECT COALESCE(SUM(amount),0) FROM fuel_issues f
-              WHERE substr(f.date,1,7) = ? || '-' || m.month) AS issued_amount
+              WHERE substr(f.date,1,7) = ? || '-' || m.month ${AND_B(req, 'f.branch_id')}) AS issued_amount
        FROM m ORDER BY m.month`,
     Array(9).fill(year)
   ).map((r) => ({ ...r, deviation: Math.round((r.fact_liters - r.norm_liters) * 100) / 100 }));
@@ -226,35 +239,35 @@ router.get('/monthly', requireAuth(), h((req, res) => {
 }));
 
 // ------------------------------ Bosh sahifa --------------------------------
-router.get('/dashboard', requireAuth(), h((_req, res) => {
+router.get('/dashboard', requireAuth(), h((req, res) => {
   const { from, to } = monthRange();
   const stats = get(
     `SELECT
-       (SELECT COUNT(*) FROM vehicles WHERE active = 1) AS vehicles,
-       (SELECT COUNT(*) FROM drivers  WHERE active = 1) AS drivers,
-       (SELECT COUNT(*) FROM waybills WHERE status <> 'closed') AS open_waybills,
-       (SELECT COUNT(*) FROM waybills WHERE date_from BETWEEN ? AND ?) AS month_waybills,
-       (SELECT COALESCE(SUM(liters),0) FROM fuel_issues WHERE date BETWEEN ? AND ?) AS month_liters,
-       (SELECT COALESCE(SUM(amount),0) FROM fuel_issues WHERE date BETWEEN ? AND ?) AS month_amount,
+       (SELECT COUNT(*) FROM vehicles WHERE active = 1 ${AND_B(req)}) AS vehicles,
+       (SELECT COUNT(*) FROM drivers  WHERE active = 1 ${AND_B(req)}) AS drivers,
+       (SELECT COUNT(*) FROM waybills WHERE status <> 'closed' ${AND_B(req)}) AS open_waybills,
+       (SELECT COUNT(*) FROM waybills WHERE date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_waybills,
+       (SELECT COALESCE(SUM(liters),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B(req)}) AS month_liters,
+       (SELECT COALESCE(SUM(amount),0) FROM fuel_issues WHERE date BETWEEN ? AND ? ${AND_B(req)}) AS month_amount,
        (SELECT COALESCE(SUM(distance_km),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_distance,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_distance,
        (SELECT COALESCE(SUM(worked_hours),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_hours,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_hours,
        (SELECT COALESCE(SUM(flights_served),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_flights,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_flights,
        (SELECT COALESCE(SUM(cargo_ton),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_cargo,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_cargo,
        (SELECT COALESCE(SUM(uld_count),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_uld,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_uld,
        (SELECT COALESCE(SUM(fact_liters),0) - COALESCE(SUM(norm_liters),0) FROM v_waybill_calc
-         WHERE status='closed' AND date_from BETWEEN ? AND ?) AS month_deviation`,
+         WHERE status='closed' AND date_from BETWEEN ? AND ? ${AND_B(req)}) AS month_deviation`,
     Array(9).fill([from, to]).flat()
   );
 
   const openWaybills = all(
     `SELECT id, number, date_from, garage_no, plate, model, driver_name, status,
             category_name_uz, category_name_ru
-       FROM v_waybill_calc WHERE status <> 'closed'
+       FROM v_waybill_calc WHERE status <> 'closed' ${AND_B(req)}
       ORDER BY date_from DESC LIMIT 10`);
 
   // Texnika guruhlari kesimi (perron / yuk / aerodrom / yo'lovchi / yo'l)
@@ -268,7 +281,7 @@ router.get('/dashboard', requireAuth(), h((_req, res) => {
        LEFT JOIN equipment_categories ec ON ec.id = v.category_id
        LEFT JOIN v_waybill_calc w ON w.vehicle_id = v.id AND w.status = 'closed'
                                  AND w.date_from BETWEEN ? AND ?
-      WHERE v.active = 1
+      WHERE v.active = 1 ${AND_B(req, 'v.branch_id')}
       GROUP BY COALESCE(ec.group_code, 'road')
       ORDER BY fact_liters DESC`, [from, to]);
 
@@ -276,20 +289,20 @@ router.get('/dashboard', requireAuth(), h((_req, res) => {
   const lowFuel = all(
     `SELECT v.id, v.garage_no, v.plate, v.model, v.fuel_balance, v.tank_capacity,
             ROUND(v.fuel_balance / NULLIF(v.tank_capacity,0) * 100, 0) AS pct
-       FROM vehicles v WHERE v.active = 1 AND v.tank_capacity > 0
+       FROM vehicles v WHERE v.active = 1 AND v.tank_capacity > 0 ${AND_B(req, 'v.branch_id')}
         AND v.power_type <> 'electric'
         AND v.fuel_balance < v.tank_capacity * 0.15
       ORDER BY pct LIMIT 10`);
 
   const daily = all(
     `SELECT date, COALESCE(SUM(liters),0) AS liters FROM fuel_issues
-      WHERE date BETWEEN ? AND ? GROUP BY date ORDER BY date`, [from, to]);
+      WHERE date BETWEEN ? AND ? ${AND_B(req)} GROUP BY date ORDER BY date`, [from, to]);
 
   const topDeviation = all(
     `SELECT garage_no, plate, number, date_from,
             ROUND(fact_liters - norm_liters, 2) AS deviation
        FROM v_waybill_calc
-      WHERE status='closed' AND fact_liters IS NOT NULL AND date_from BETWEEN ? AND ?
+      WHERE status='closed' AND fact_liters IS NOT NULL AND date_from BETWEEN ? AND ? ${AND_B(req)}
       ORDER BY ABS(fact_liters - norm_liters) DESC LIMIT 5`, [from, to]);
 
   res.json({ period: { from, to }, stats, openWaybills, lowFuel, daily, topDeviation, byGroup });

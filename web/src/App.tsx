@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
-import { I18nContext, useI18n, type Lang } from './i18n';
+import { I18nContext, pick, useI18n, type Lang } from './i18n';
 import { AuthProvider, useAuth } from './auth';
 import { ToastProvider } from './ui';
-import { LOCAL_MODE } from './api';
+import { api, getBranch, setBranch, LOCAL_MODE, type Branch } from './api';
 
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -105,6 +105,8 @@ function Sidebar() {
         </div>
       </div>
 
+      <BranchBar />
+
       <nav className="nav">
         {items.map((it) => (
           <NavLink key={it.to} to={it.to} end={it.end}>
@@ -133,6 +135,46 @@ function Sidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+/**
+ * Filial ko'rsatkichi. Filial xodimiga — o'z aeroporti nomi (o'zgartirib bo'lmaydi),
+ * bosh ofis xodimiga — filial almashtirgich va "barcha filiallar" varianti.
+ */
+function BranchBar() {
+  const { t, lang } = useI18n();
+  const { user } = useAuth();
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [sel, setSel] = useState(getBranch());
+  const isHq = user?.branch_id == null;
+
+  useEffect(() => {
+    if (!isHq) return;
+    api.get<Branch[]>('/branches').then(setBranches).catch(() => {});
+  }, [isHq]);
+
+  if (!isHq) {
+    return (
+      <div className="branch-bar">
+        <span className="branch-label">{t('branch')}</span>
+        <div className="branch-name">{pick(lang, user, 'branch_name') || '—'}</div>
+      </div>
+    );
+  }
+
+  const change = (v: string) => { setBranch(v); setSel(v); location.reload(); };
+
+  return (
+    <div className="branch-bar">
+      <span className="branch-label">{t('branch')}</span>
+      <select value={sel} onChange={(e) => change(e.target.value)}>
+        <option value="">{t('allBranches')}</option>
+        {branches.map((b) => (
+          <option key={b.id} value={b.id}>{b.code} · {pick(lang, b, 'name')}</option>
+        ))}
+      </select>
+    </div>
   );
 }
 

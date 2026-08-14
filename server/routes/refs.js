@@ -3,6 +3,7 @@ import express from 'express';
 import { all, get, run, audit } from '../db.js';
 import { requireAuth, hashPassword } from '../auth.js';
 import { recalcVehicle } from '../calc.js';
+import { pushBranch, branchForInsert } from '../branch.js';
 import { h, str, num, bool, bad, notFound } from '../util.js';
 
 export const router = express.Router();
@@ -23,6 +24,7 @@ const vehicleSelect = `
 router.get('/vehicles', requireAuth(), h((req, res) => {
   const where = [];
   const params = [];
+  pushBranch(where, params, req, 'v.branch_id');
   if (req.query.active === '1') where.push('v.active = 1');
   if (req.query.category_id) { where.push('v.category_id = ?'); params.push(Number(req.query.category_id)); }
   if (req.query.group) { where.push('ec.group_code = ?'); params.push(str(req.query.group, 'group')); }
@@ -79,14 +81,17 @@ function vehicleBody(b) {
 
 router.post('/vehicles', requireAuth(...ADMIN), h((req, res) => {
   const v = vehicleBody(req.body);
+  const branchId = branchForInsert(req, req.body);
   if (!get('SELECT id FROM fuel_types WHERE id = ?', [v.fuel_type_id])) throw bad('Yoqilg\'i turi topilmadi');
-  if (get('SELECT id FROM vehicles WHERE garage_no = ?', [v.garage_no])) throw bad('Bu garaj raqami band');
+  if (get('SELECT id FROM vehicles WHERE garage_no = ? AND branch_id = ?', [v.garage_no, branchId])) {
+    throw bad('Bu filialda bunday garaj raqami band');
+  }
   const r = run(
-    `INSERT INTO vehicles (garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
+    `INSERT INTO vehicles (branch_id, garage_no, plate, model, category_id, zone_id, norm_basis, power_type,
        serial_no, made_year, fuel_type_id, tank_capacity, norm_per_100km, winter_pct,
        norm_engine_hour, norm_per_ton_km, init_odometer, init_hours, init_fuel, active, notes)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    Object.values(v)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [branchId, ...Object.values(v)]
   );
   recalcVehicle(Number(r.lastInsertRowid));
   audit(req.user.id, 'create', 'vehicle', Number(r.lastInsertRowid), v.garage_no);
@@ -97,7 +102,9 @@ router.put('/vehicles/:id', requireAuth(...ADMIN), h((req, res) => {
   const id = Number(req.params.id);
   if (!get('SELECT id FROM vehicles WHERE id = ?', [id])) throw notFound();
   const v = vehicleBody(req.body);
-  if (get('SELECT id FROM vehicles WHERE garage_no = ? AND id <> ?', [v.garage_no, id])) throw bad('Bu garaj raqami band');
+  const cur = get('SELECT branch_id FROM vehicles WHERE id = ?', [id]);
+  if (get('SELECT id FROM vehicles WHERE garage_no = ? AND branch_id = ? AND id <> ?',
+          [v.garage_no, cur.branch_id, id])) throw bad('Bu filialda bunday garaj raqami band');
   run(
     `UPDATE vehicles SET garage_no=?, plate=?, model=?, category_id=?, zone_id=?, norm_basis=?,
        power_type=?, serial_no=?, made_year=?, fuel_type_id=?, tank_capacity=?, norm_per_100km=?,
@@ -131,6 +138,7 @@ router.get('/drivers', requireAuth(), h((req, res) => {
   const q = str(req.query.q, 'q');
   const where = [];
   const params = [];
+  pushBranch(where, params, req);
   if (onlyActive) where.push('active = 1');
   if (q) { where.push('(full_name LIKE ? OR tab_no LIKE ?)'); params.push(`%${q}%`, `%${q}%`); }
   res.json(all(
@@ -159,9 +167,9 @@ function driverBody(b) {
 router.post('/drivers', requireAuth(...ADMIN), h((req, res) => {
   const d = driverBody(req.body);
   const r = run(
-    `INSERT INTO drivers (full_name, tab_no, license_no, phone, class, position,
-       apron_permit, permit_until, active) VALUES (?,?,?,?,?,?,?,?,?)`,
-    Object.values(d)
+    `INSERT INTO drivers (branch_id, full_name, tab_no, license_no, phone, class, position,
+       apron_permit, permit_until, active) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    [branchForInsert(req, req.body), ...Object.values(d)]
   );
   audit(req.user.id, 'create', 'driver', Number(r.lastInsertRowid), d.full_name);
   res.status(201).json(get('SELECT * FROM drivers WHERE id = ?', [r.lastInsertRowid]));
@@ -191,6 +199,28 @@ router.delete('/drivers/:id', requireAuth(...ADMIN), h((req, res) => {
   run('DELETE FROM drivers WHERE id = ?', [id]);
   audit(req.user.id, 'delete', 'driver', id);
   res.json({ ok: true, archived: false });
+}));
+
+// =============================== Filiallar ================================
+router.get('/branches', requireAuth(), h((req, res) => {
+  // Filial xodimi faqat o'z filialini ko'radi, bosh ofis — barchasini
+  const rows = req.isHq
+    ? all('SELECT * FROM branches WHERE active = 1 ORDER BY id')
+    : all('SELECT * FROM branches WHERE id = ?', [req.branchId]);
+  res.json(rows);
+}));
+
+router.post('/branches', requireAuth(...ADMIN), h((req, res) => {
+  if (!req.isHq) throw bad('Filial ochishni faqat bosh ofis amalga oshiradi');
+  const code = str(req.body.code, 'Kod', { required: true, max: 10 }).toUpperCase();
+  if (get('SELECT id FROM branches WHERE code = ?', [code])) throw bad('Bu kod band');
+  const r = run('INSERT INTO branches (code, name_uz, name_ru) VALUES (?,?,?)', [
+    code,
+    str(req.body.name_uz, 'Nomi (uz)', { required: true, max: 120 }),
+    str(req.body.name_ru, 'Nomi (ru)', { required: true, max: 120 }),
+  ]);
+  audit(req.user.id, 'create', 'branch', Number(r.lastInsertRowid), code);
+  res.status(201).json(get('SELECT * FROM branches WHERE id = ?', [r.lastInsertRowid]));
 }));
 
 // ========================= Texnika turkumlari (GSE) =======================
@@ -365,8 +395,16 @@ router.put('/org', requireAuth(...ADMIN), h((req, res) => {
 }));
 
 // ============================ Foydalanuvchilar ============================
-router.get('/users', requireAuth(...ADMIN), h((_req, res) => {
-  res.json(all('SELECT id, username, full_name, role, active, created_at FROM users ORDER BY active DESC, username'));
+router.get('/users', requireAuth(...ADMIN), h((req, res) => {
+  const where = [];
+  const params = [];
+  pushBranch(where, params, req, 'u.branch_id');
+  res.json(all(
+    `SELECT u.id, u.username, u.full_name, u.role, u.active, u.created_at, u.branch_id,
+            b.code AS branch_code, b.name_uz AS branch_name_uz, b.name_ru AS branch_name_ru
+       FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+      ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+      ORDER BY u.active DESC, u.username`, params));
 }));
 
 router.post('/users', requireAuth(...ADMIN), h((req, res) => {
@@ -378,9 +416,13 @@ router.post('/users', requireAuth(...ADMIN), h((req, res) => {
   if (password.length < 4) throw bad('Parol kamida 4 belgidan iborat bo\'lsin');
   if (get('SELECT id FROM users WHERE lower(username) = ?', [username])) throw bad('Bu login band');
 
+  // Bosh ofis xodimi uchun branch_id = NULL (barcha filiallar)
+  const branchId = req.isHq && req.body.branch_id === null
+    ? null
+    : branchForInsert(req, req.body);
   const r = run(
-    'INSERT INTO users (username, full_name, password_hash, role, active) VALUES (?,?,?,?,?)',
-    [username, full_name, hashPassword(password), role, bool(req.body.active ?? 1)]
+    'INSERT INTO users (username, full_name, password_hash, role, active, branch_id) VALUES (?,?,?,?,?,?)',
+    [username, full_name, hashPassword(password), role, bool(req.body.active ?? 1), branchId]
   );
   audit(req.user.id, 'create', 'user', Number(r.lastInsertRowid), username);
   res.status(201).json(get('SELECT id, username, full_name, role, active FROM users WHERE id = ?', [r.lastInsertRowid]));

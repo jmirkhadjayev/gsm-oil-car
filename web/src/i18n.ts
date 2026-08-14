@@ -61,6 +61,12 @@ const dict = {
   navReports: ['Hisobotlar', 'Отчёты'],
   navSettings: ['Sozlamalar', 'Настройки'],
 
+  // --- Filiallar ---
+  branch: ['Filial', 'Филиал'],
+  branches: ['Filiallar', 'Филиалы'],
+  allBranches: ['Barcha filiallar', 'Все филиалы'],
+  headOffice: ['Bosh ofis', 'Головной офис'],
+
   // --- Aeroport texnikasi (GSE) ---
   equipment: ['Texnika', 'Техника'],
   category: ['Turkum', 'Категория'],

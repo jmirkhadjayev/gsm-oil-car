@@ -12,7 +12,13 @@ const bad = (m: string) => new LocalError(400, m);
 const notFound = (m = 'Topilmadi') => new LocalError(404, m);
 
 // Demo rejimida autentifikatsiya o'chirilgan — barcha amallar administrator nomidan
-const DEMO_USER = { id: 1, username: 'admin', full_name: 'Administrator', role: 'admin' as const, active: 1 };
+// Demoda bitta filial — almashtirgich ko'rsatilmaydi
+const DEMO_USER = {
+  id: 1, username: 'admin', full_name: 'Administrator', role: 'admin' as const, active: 1,
+  branch_id: 1, branch_code: 'TAS',
+  branch_name_uz: 'Toshkent xalqaro aeroporti',
+  branch_name_ru: 'Международный аэропорт Ташкент',
+};
 
 let initialized = false;
 export async function ensureReady() {
@@ -110,6 +116,11 @@ export async function localRequest(method: string, url: string, body?: any): Pro
   if (path === '/auth/logout') return { ok: true };
   if (path === '/auth/me') return { user: DEMO_USER };
   if (path === '/auth/password') return { ok: true };
+
+  // ------------------------------ Filiallar -----------------------------
+  if (seg[0] === 'branches' && method === 'GET') {
+    return all('SELECT * FROM branches WHERE active = 1 ORDER BY id');
+  }
 
   // ----------------------------- Tashkilot -----------------------------
   if (path === '/org' && method === 'GET') return get('SELECT * FROM org WHERE id = 1');

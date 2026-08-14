@@ -4,6 +4,7 @@ import { all, get, run, audit } from '../db.js';
 import { requireAuth } from '../auth.js';
 import { recalcVehicle, r2 } from '../calc.js';
 import { h, str, num, date, bad, notFound } from '../util.js';
+import { pushBranch } from '../branch.js';
 
 export const router = express.Router();
 const EDIT = ['admin', 'dispatcher', 'operator'];
@@ -23,6 +24,7 @@ const SELECT = `
 router.get('/', requireAuth(), h((req, res) => {
   const where = [];
   const params = [];
+  pushBranch(where, params, req, 'fi.branch_id');
   const from = str(req.query.from, 'from');
   const to = str(req.query.to, 'to');
   if (from) { where.push('fi.date >= ?'); params.push(from); }
@@ -77,6 +79,7 @@ function body(b) {
   if (!['azs', 'ombor', 'talon', 'karta'].includes(source)) throw bad('Noto\'g\'ri manba turi');
 
   return {
+    branch_id: vehicle.branch_id,      // yozuv texnikaning filialiga tegishli
     date: date(b.date, 'Sana'),
     vehicle_id: vehicle.id,
     driver_id,
@@ -95,9 +98,9 @@ function body(b) {
 router.post('/', requireAuth(...EDIT), h((req, res) => {
   const f = body(req.body);
   const r = run(
-    `INSERT INTO fuel_issues (date, vehicle_id, driver_id, waybill_id, fuel_type_id,
+    `INSERT INTO fuel_issues (branch_id, date, vehicle_id, driver_id, waybill_id, fuel_type_id,
        liters, price, amount, source, station, doc_no, notes, created_by)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [...Object.values(f), req.user.id]
   );
   const id = Number(r.lastInsertRowid);
@@ -115,7 +118,7 @@ router.put('/:id', requireAuth(...EDIT), h((req, res) => {
 
   const f = body(req.body);
   run(
-    `UPDATE fuel_issues SET date=?, vehicle_id=?, driver_id=?, waybill_id=?, fuel_type_id=?,
+    `UPDATE fuel_issues SET branch_id=?, date=?, vehicle_id=?, driver_id=?, waybill_id=?, fuel_type_id=?,
        liters=?, price=?, amount=?, source=?, station=?, doc_no=?, notes=? WHERE id=?`,
     [...Object.values(f), id]
   );

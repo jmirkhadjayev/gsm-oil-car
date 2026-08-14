@@ -17,10 +17,17 @@ router.post('/login', h((req, res) => {
 
   const session = createSession(user.id);
   audit(user.id, 'login', 'user', user.id);
+  const branch = user.branch_id ? get('SELECT * FROM branches WHERE id = ?', [user.branch_id]) : null;
   res.json({
     token: session.token,
     expires_at: session.expires_at,
-    user: { id: user.id, username: user.username, full_name: user.full_name, role: user.role },
+    user: {
+      id: user.id, username: user.username, full_name: user.full_name, role: user.role,
+      branch_id: user.branch_id ?? null,
+      branch_code: branch?.code ?? null,
+      branch_name_uz: branch?.name_uz ?? null,
+      branch_name_ru: branch?.name_ru ?? null,
+    },
   });
 }));
 
