@@ -99,6 +99,24 @@ const dict = {
   authLdapShort: ['Katalog', 'Каталог'],
   lastLogin: ['Oxirgi kirish', 'Последний вход'],
 
+  // --- Buyruq paneli ---
+  cmdTitle: ['Buyruq paneli', 'Командная панель'],
+  cmdPlaceholder: [
+    "Bo'lim, amal, varaqa raqami, texnika yoki xodim…",
+    'Раздел, действие, номер листа, техника или сотрудник…',
+  ],
+  cmdPlaceholderShort: ['Qidirish', 'Поиск'],
+  cmdPages: ["Bo'limlar", 'Разделы'],
+  cmdActions: ['Amallar', 'Действия'],
+  cmdSystem: ['Tizim', 'Система'],
+  cmdRecent: ['Oxirgi ochilganlar', 'Недавние'],
+  cmdActionHint: ['Yangi yozuv yaratish', 'Создать новую запись'],
+  cmdNothing: ['Hech narsa topilmadi', 'Ничего не найдено'],
+  cmdNav: ['tanlash', 'выбор'],
+  cmdOpen: ['ochish', 'открыть'],
+  cmdClose: ['yopish', 'закрыть'],
+  cmdCount: ['{n} ta natija', '{n} результатов'],
+
   // --- Filiallar ---
   branch: ['Filial', 'Филиал'],
   branches: ['Filiallar', 'Филиалы'],

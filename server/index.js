@@ -15,6 +15,7 @@ import { router as refsRouter } from './routes/refs.js';
 import { router as waybillsRouter } from './routes/waybills.js';
 import { router as fuelRouter } from './routes/fuel.js';
 import { router as reportsRouter } from './routes/reports.js';
+import { router as searchRouter } from './routes/search.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
@@ -35,6 +36,7 @@ app.use('/api', refsRouter);
 app.use('/api/waybills', waybillsRouter);
 app.use('/api/fuel', fuelRouter);
 app.use('/api/reports', reportsRouter);
+app.use('/api/search', searchRouter);
 app.get('/api/health', (_req, res) => res.json({ ok: true, db: path.basename(dbPath) }));
 
 // ---------------------------- Frontend (build) ----------------------------

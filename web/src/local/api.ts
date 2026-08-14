@@ -136,6 +136,47 @@ export async function localRequest(method: string, url: string, body?: any): Pro
   if (path === '/auth/me') return { user: DEMO_USER };
   if (path === '/auth/password') return { ok: true };
 
+  // ------------------------------- Qidiruv -------------------------------
+  if (seg[0] === 'search' && method === 'GET') {
+    const term = str(q.get('q')).trim();
+    if (!term) return { q: term, waybills: [], vehicles: [], drivers: [] };
+    const like = `%${term}%`;
+    const numeric = term.replace(/[^\d]/g, '');
+    const L = 6;
+
+    const wbWhere: string[] = [];
+    pushBranch(wbWhere);
+    wbWhere.push('(number LIKE ? OR garage_no LIKE ? OR plate LIKE ? OR driver_name LIKE ? OR model LIKE ?)');
+
+    return {
+      q: term,
+      waybills: all(
+        `SELECT id, number, date_from, status, garage_no, plate, model, driver_name,
+                branch_code, group_code
+           FROM v_waybill_calc WHERE ${wbWhere.join(' AND ')}
+          ORDER BY CASE WHEN number = ? THEN 0 ELSE 1 END, date_from DESC, id DESC LIMIT ?`,
+        [like, like, like, like, like, numeric || term, L]),
+      vehicles: all(
+        `SELECT v.id, v.garage_no, v.plate, v.model, v.active,
+                ec.group_code, ec.name_uz AS category_name_uz, ec.name_ru AS category_name_ru,
+                b.code AS branch_code
+           FROM vehicles v
+           LEFT JOIN equipment_categories ec ON ec.id = v.category_id
+           LEFT JOIN branches b ON b.id = v.branch_id
+          WHERE (v.garage_no LIKE ? OR v.plate LIKE ? OR v.model LIKE ? OR v.serial_no LIKE ?)
+            ${AND_B('v.branch_id')}
+          ORDER BY v.active DESC, v.garage_no LIMIT ?`,
+        [like, like, like, like, L]),
+      drivers: all(
+        `SELECT d.id, d.full_name, d.tab_no, d.position, d.active, b.code AS branch_code
+           FROM drivers d LEFT JOIN branches b ON b.id = d.branch_id
+          WHERE (d.full_name LIKE ? OR d.tab_no LIKE ? OR d.apron_permit LIKE ?)
+            ${AND_B('d.branch_id')}
+          ORDER BY d.active DESC, d.full_name LIMIT ?`,
+        [like, like, like, L]),
+    };
+  }
+
   // ------------------------------ Filiallar -----------------------------
   if (seg[0] === 'branches' && method === 'GET') {
     return all('SELECT * FROM branches WHERE active = 1 ORDER BY id');

@@ -4,6 +4,7 @@ import { I18nContext, pick, useI18n, type Lang } from './i18n';
 import { AuthProvider, useAuth } from './auth';
 import { ToastProvider } from './ui';
 import { api, getBranch, setBranch, LOCAL_MODE, type Branch } from './api';
+import CommandPalette, { CommandHint } from './CommandPalette';
 
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -51,6 +52,7 @@ function Shell() {
   return (
     <div className="app">
       <Sidebar />
+      <CommandPalette />
       <div className="main">
         <Topbar />
         <div className="content">
@@ -214,6 +216,7 @@ function Topbar() {
       <h1>{title}</h1>
       {LOCAL_MODE && <span className="badge amber" title={t('demoStorage')}>{t('demoBadge')}</span>}
       <div className="spacer" />
+      <CommandHint />
       <div className="lang-switch">
         <button className={lang === 'uz' ? 'active' : ''} onClick={() => setLang('uz')}>UZ</button>
         <button className={lang === 'ru' ? 'active' : ''} onClick={() => setLang('ru')}>RU</button>
