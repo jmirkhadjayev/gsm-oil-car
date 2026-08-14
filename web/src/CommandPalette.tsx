@@ -13,6 +13,8 @@ import { useAuth } from './auth';
 import { pick, useI18n, type Key } from './i18n';
 import { GROUP_ICON } from './lib/airport';
 import { dmy } from './lib/format';
+import { setTheme, type Theme } from './theme';
+import { setLayout, type Layout } from './layout';
 
 type Item = {
   id: string;
@@ -142,6 +144,28 @@ export default function CommandPalette() {
           run: () => { setBranch(String(b.id)); location.reload(); },
         });
       }
+    }
+
+    // Mavzu
+    const themes: [Theme, string, Key][] = [
+      ['light', '☀', 'themeLight'], ['dark', '☾', 'themeDark'], ['system', '◐', 'themeSystem'],
+    ];
+    for (const [v, icon, key] of themes) {
+      items.push({
+        id: `theme:${v}`, group: t('theme'), icon, title: t(key),
+        run: () => { setTheme(v); setOpen(false); },
+      });
+    }
+
+    // Ko'rinish
+    const layouts: [Layout, string, Key][] = [
+      ['side', '▤', 'layoutSide'], ['rail', '▥', 'layoutRail'], ['top', '▬', 'layoutTop'],
+    ];
+    for (const [v, icon, key] of layouts) {
+      items.push({
+        id: `layout:${v}`, group: t('layout'), icon, title: t(key),
+        run: () => { setLayout(v); setOpen(false); },
+      });
     }
 
     items.push({

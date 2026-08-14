@@ -45,6 +45,10 @@
   --shadow-lg: 0 24px 60px rgba(26, 29, 33, .18);
   --sidebar-w: 262px;
 
+  /* Brauzerning o'z elementlari (sana tanlash, aylantirish paneli) ham
+     mavzuga moslashishi uchun */
+  color-scheme: light;
+
   --font: 'Montserrat Variable', Montserrat, 'Segoe UI', system-ui, -apple-system, sans-serif;
   --font-mono: 'Cascadia Mono', Consolas, ui-monospace, 'SF Mono', monospace;
 
@@ -54,6 +58,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    color-scheme: dark;
     --ground:        #131518;
     --surface:       #1B1E22;
     --surface-2:     #22262A;
@@ -89,6 +94,7 @@
 }
 
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --ground:        #131518;
   --surface:       #1B1E22;
   --surface-2:     #22262A;
@@ -235,6 +241,132 @@ a:hover { text-decoration: underline; }
 }
 .user-name { font-weight: 600; font-size: 14px; line-height: 1.3; }
 .user-role { font-size: 12px; color: var(--text-muted); letter-spacing: .04em; }
+
+/* ==================== KO'RINISH: BELGILAR USTUNI ==================== */
+/* Yon panel 64 px ga siqiladi; sichqoncha yaqinlashsa to'liq ochiladi.
+   Kontent siljimasligi uchun ochilgan panel kontent ustida turadi. */
+.layout-rail .sidebar {
+  width: 64px; flex: 0 0 64px;
+  transition: width .16s ease;
+  z-index: 40;
+}
+.layout-rail .sidebar:hover,
+.layout-rail .sidebar:focus-within {
+  width: var(--sidebar-w);
+  box-shadow: 8px 0 24px rgba(26, 29, 33, .12);
+}
+.layout-rail .sidebar .brand { padding: 22px 0 18px; justify-content: center; }
+.layout-rail .sidebar .brand > div:last-child,
+.layout-rail .sidebar .nav-text,
+.layout-rail .sidebar .branch-name,
+.layout-rail .sidebar .branch-bar select,
+.layout-rail .sidebar .user-box > div:last-child,
+.layout-rail .sidebar .sidebar-foot .btn-text,
+.layout-rail .sidebar .sidebar-foot .hint { display: none; }
+
+/* Filial kodi faqat yig'ilgan holatda ko'rinadi */
+.branch-code { display: none; }
+.layout-rail .sidebar .branch-code {
+  display: block; text-align: center;
+  font-size: 14px; font-weight: 700; letter-spacing: .06em; color: var(--brass);
+}
+.layout-rail .sidebar .branch-bar { padding: 14px 0; text-align: center; }
+.layout-rail .sidebar .branch-label { font-size: 9px; letter-spacing: .08em; }
+.layout-rail .nav a { justify-content: center; padding: 12px 0; margin: 0 8px 2px; }
+.layout-rail .nav-icon { width: auto; }
+.layout-rail .sidebar-foot { padding: 14px 0; }
+.layout-rail .user-box { justify-content: center; margin-bottom: 10px; }
+.layout-rail .sidebar-foot .btn { width: 40px; margin: 0 auto; padding: 8px 0; }
+
+/* Ochilganda hammasi qaytadi */
+.layout-rail .sidebar:hover .brand,
+.layout-rail .sidebar:focus-within .brand { padding: 26px 22px 22px; justify-content: flex-start; }
+.layout-rail .sidebar:hover .brand > div:last-child,
+.layout-rail .sidebar:hover .nav-text,
+.layout-rail .sidebar:hover .branch-name,
+.layout-rail .sidebar:hover .branch-bar select,
+.layout-rail .sidebar:hover .user-box > div:last-child,
+.layout-rail .sidebar:hover .sidebar-foot .btn-text,
+.layout-rail .sidebar:hover .sidebar-foot .hint,
+.layout-rail .sidebar:focus-within .brand > div:last-child,
+.layout-rail .sidebar:focus-within .nav-text,
+.layout-rail .sidebar:focus-within .branch-name,
+.layout-rail .sidebar:focus-within .branch-bar select,
+.layout-rail .sidebar:focus-within .user-box > div:last-child,
+/* revert — har bir element o'z odatiy display qiymatiga qaytadi
+   (div uchun block, span uchun inline) */
+.layout-rail .sidebar:focus-within .sidebar-foot .btn-text,
+.layout-rail .sidebar:focus-within .sidebar-foot .hint { display: revert; }
+.layout-rail .sidebar:hover .branch-code,
+.layout-rail .sidebar:focus-within .branch-code { display: none; }
+.layout-rail .sidebar:hover .branch-bar,
+.layout-rail .sidebar:focus-within .branch-bar { padding: 18px 22px 20px; text-align: left; }
+.layout-rail .sidebar:hover .nav a,
+.layout-rail .sidebar:focus-within .nav a { justify-content: flex-start; padding: 11px 12px; }
+.layout-rail .sidebar:hover .sidebar-foot,
+.layout-rail .sidebar:focus-within .sidebar-foot { padding: 18px 16px; }
+.layout-rail .sidebar:hover .user-box,
+.layout-rail .sidebar:focus-within .user-box { justify-content: flex-start; margin-bottom: 14px; }
+.layout-rail .sidebar:hover .sidebar-foot .btn,
+.layout-rail .sidebar:focus-within .sidebar-foot .btn { width: 100%; padding: 11px 20px; }
+
+/* ===================== KO'RINISH: YUQORI MENYU ====================== */
+.topbar-stack { flex-direction: column; align-items: stretch; gap: 0; padding: 0; }
+.topbar-row {
+  display: flex; align-items: center; gap: 14px;
+  padding: 12px 32px; border-bottom: 1px solid var(--hairline);
+}
+.topbar-row .spacer { flex: 1; }
+
+.top-brand { display: flex; align-items: center; gap: 11px; flex: 0 0 auto; }
+.top-brand .brand-logo { width: 34px; height: 34px; flex: 0 0 34px; font-size: 17px; }
+.top-brand span {
+  font-size: 13px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .1em; white-space: nowrap;
+}
+
+.branch-compact {
+  display: flex; align-items: center; gap: 10px;
+  padding: 0 0 0 16px; margin-left: 4px;
+  border: none; border-left: 1px solid var(--border); background: none;
+}
+.branch-compact .branch-label { margin-bottom: 0; }
+.branch-compact .branch-name { font-size: 13.5px; }
+.branch-compact select { width: auto; min-width: 190px; padding: 7px 10px; font-size: 14px; }
+
+.user-chip { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.user-chip .avatar { width: 34px; height: 34px; flex: 0 0 34px; font-size: 14px; }
+
+.top-nav {
+  display: flex; align-items: stretch; gap: 2px;
+  padding: 0 32px; overflow-x: auto;
+}
+.top-nav a {
+  display: flex; align-items: center; gap: 9px;
+  padding: 12px 15px; text-decoration: none;
+  color: var(--text-muted);
+  font-size: 11.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .09em;
+  white-space: nowrap;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  transition: color .14s, border-color .14s;
+}
+.top-nav a:hover { color: var(--text); text-decoration: none; }
+.top-nav a.active { color: var(--text); border-bottom-color: var(--brass-bright); }
+.top-nav .nav-icon { font-size: 15px; filter: grayscale(1); opacity: .5; }
+.top-nav a.active .nav-icon { filter: grayscale(0); opacity: 1; }
+
+.page-title {
+  font-size: 25px; font-weight: 500; letter-spacing: .015em;
+  margin: 0 0 22px; padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+@media (max-width: 1200px) {
+  .topbar-row { padding: 12px 18px; }
+  .top-nav { padding: 0 18px; }
+  .branch-compact select { min-width: 130px; }
+}
 
 /* ------------------------------ Topbar ---------------------------- */
 .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -652,15 +784,23 @@ table.tbl td input, table.tbl td select { padding: 8px 10px; font-size: 14.5px; 
 .filters .field { margin-bottom: 0; min-width: 155px; }
 .filters .field.grow { flex: 1; min-width: 215px; }
 
-.lang-switch {
+.lang-switch, .theme-switch {
   display: flex; border: 1px solid var(--border-strong);
   border-radius: var(--radius); overflow: hidden;
 }
-.lang-switch button {
+.lang-switch button, .theme-switch button {
   padding: 8px 14px; border: none; background: transparent; color: var(--text-muted);
   font-family: var(--font); font-size: 10.5px; cursor: pointer;
+  transition: background .14s, color .14s;
 }
-.lang-switch button.active { background: var(--ink-btn); color: var(--ink-btn-text); }
+.lang-switch button:hover:not(.active), .theme-switch button:hover:not(.active) {
+  background: var(--surface-2); color: var(--text);
+}
+.lang-switch button.active, .theme-switch button.active {
+  background: var(--ink-btn); color: var(--ink-btn-text);
+}
+/* Mavzu belgilar bilan ko'rsatiladi — matn kerak emas */
+.theme-switch button { padding: 7px 11px; font-size: 14px; line-height: 1; }
 
 .page-head { display: flex; align-items: center; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .page-head h2 { font-size: 18px; }

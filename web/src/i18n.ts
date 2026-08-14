@@ -99,6 +99,16 @@ const dict = {
   authLdapShort: ['Katalog', 'Каталог'],
   lastLogin: ['Oxirgi kirish', 'Последний вход'],
 
+  // --- Mavzu va ko'rinish ---
+  theme: ['Mavzu', 'Тема'],
+  themeLight: ["Yorug' rejim", 'Светлая тема'],
+  themeDark: ["Qorong'i rejim", 'Тёмная тема'],
+  themeSystem: ['Tizim bo\'yicha', 'Как в системе'],
+  layout: ["Ko'rinish", 'Вид'],
+  layoutSide: ['Yon panel', 'Боковая панель'],
+  layoutRail: ['Belgilar ustuni', 'Полоса значков'],
+  layoutTop: ['Yuqori menyu', 'Верхнее меню'],
+
   // --- Buyruq paneli ---
   cmdTitle: ['Buyruq paneli', 'Командная панель'],
   cmdPlaceholder: [

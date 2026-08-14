@@ -5,6 +5,8 @@ import { AuthProvider, useAuth } from './auth';
 import { ToastProvider } from './ui';
 import { api, getBranch, setBranch, LOCAL_MODE, type Branch } from './api';
 import CommandPalette, { CommandHint } from './CommandPalette';
+import { getTheme, setTheme, type Theme } from './theme';
+import { getLayout, setLayout, type Layout } from './layout';
 
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
@@ -35,9 +37,44 @@ export default function App() {
   );
 }
 
+/** Navigatsiya bo'limlari — yon panel ham, yuqori menyu ham shundan foydalanadi. */
+function useNavItems() {
+  const { t } = useI18n();
+  const { can } = useAuth();
+  return [
+    { to: '/', icon: '🏠', label: t('navDashboard'), end: true },
+    { to: '/waybills', icon: '📋', label: t('navWaybills') },
+    { to: '/fuel', icon: '⛽', label: t('navFuel') },
+    { to: '/vehicles', icon: '🚜', label: t('navVehicles') },
+    { to: '/categories', icon: '🗂️', label: t('navCategories') },
+    { to: '/drivers', icon: '👷', label: t('navDrivers') },
+    { to: '/reports', icon: '📊', label: t('navReports') },
+    ...(can('admin') ? [{ to: '/settings', icon: '⚙️', label: t('navSettings') }] : []),
+  ];
+}
+
+/** Joriy sahifa nomi. */
+function usePageTitle() {
+  const { t } = useI18n();
+  const { pathname } = useLocation();
+  const titles: Record<string, string> = {
+    '/': t('navDashboard'), '/waybills': t('navWaybills'), '/fuel': t('navFuel'),
+    '/vehicles': t('navVehicles'), '/categories': t('navCategories'),
+    '/drivers': t('navDrivers'), '/reports': t('navReports'), '/settings': t('navSettings'),
+  };
+  return titles[pathname] ?? (pathname.startsWith('/waybills') ? t('waybill') : t('appName'));
+}
+
 function Shell() {
   const { user, ready } = useAuth();
   const location = useLocation();
+  const [layout, setLayoutState] = useState<Layout>(getLayout);
+
+  useEffect(() => {
+    const sync = () => setLayoutState(getLayout());
+    window.addEventListener('gsm-layout', sync);
+    return () => window.removeEventListener('gsm-layout', sync);
+  }, []);
 
   if (!ready) return <Booting />;
   if (!user) {
@@ -50,12 +87,13 @@ function Shell() {
   }
 
   return (
-    <div className="app">
-      <Sidebar />
+    <div className={`app layout-${layout}`}>
+      {layout !== 'top' && <Sidebar />}
       <CommandPalette />
       <div className="main">
-        <Topbar />
+        <Topbar layout={layout} />
         <div className="content">
+          {layout === 'top' && <PageTitle />}
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/waybills" element={<Waybills />} />
@@ -79,18 +117,8 @@ function Shell() {
 
 function Sidebar() {
   const { t } = useI18n();
-  const { user, logout, can } = useAuth();
-
-  const items = [
-    { to: '/', icon: '🏠', label: t('navDashboard'), end: true },
-    { to: '/waybills', icon: '📋', label: t('navWaybills') },
-    { to: '/fuel', icon: '⛽', label: t('navFuel') },
-    { to: '/vehicles', icon: '🚜', label: t('navVehicles') },
-    { to: '/categories', icon: '🗂️', label: t('navCategories') },
-    { to: '/drivers', icon: '👷', label: t('navDrivers') },
-    { to: '/reports', icon: '📊', label: t('navReports') },
-    ...(can('admin') ? [{ to: '/settings', icon: '⚙️', label: t('navSettings') }] : []),
-  ];
+  const { user, logout } = useAuth();
+  const items = useNavItems();
 
   const roleLabel: Record<string, string> = {
     admin: t('roleAdmin'), dispatcher: t('roleDispatcher'),
@@ -111,9 +139,9 @@ function Sidebar() {
 
       <nav className="nav">
         {items.map((it) => (
-          <NavLink key={it.to} to={it.to} end={it.end}>
+          <NavLink key={it.to} to={it.to} end={it.end} title={it.label}>
             <span className="nav-icon">{it.icon}</span>
-            <span>{it.label}</span>
+            <span className="nav-text">{it.label}</span>
           </NavLink>
         ))}
       </nav>
@@ -131,8 +159,8 @@ function Sidebar() {
             {t('demoStorage')}
           </div>
         ) : (
-          <button className="btn btn-sm" style={{ width: '100%' }} onClick={logout}>
-            ⏻ {t('logout')}
+          <button className="btn btn-sm" style={{ width: '100%' }} onClick={logout} title={t('logout')}>
+            <span aria-hidden="true">⏻</span> <span className="btn-text">{t('logout')}</span>
           </button>
         )}
       </div>
@@ -144,7 +172,7 @@ function Sidebar() {
  * Filial ko'rsatkichi. Filial xodimiga — o'z aeroporti nomi (o'zgartirib bo'lmaydi),
  * bosh ofis xodimiga — filial almashtirgich va "barcha filiallar" varianti.
  */
-function BranchBar() {
+function BranchBar({ compact = false }: { compact?: boolean }) {
   const { t, lang } = useI18n();
   const { user } = useAuth();
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -156,21 +184,27 @@ function BranchBar() {
     api.get<Branch[]>('/branches').then(setBranches).catch(() => {});
   }, [isHq]);
 
+  const cls = `branch-bar${compact ? ' branch-compact' : ''}`;
+
   if (!isHq) {
     return (
-      <div className="branch-bar">
+      <div className={cls}>
         <span className="branch-label">{t('branch')}</span>
+        {/* Qisqa kod — belgilar ustuni rejimida shu ko'rinadi */}
+        <div className="branch-code">{user?.branch_code ?? '—'}</div>
         <div className="branch-name">{pick(lang, user, 'branch_name') || '—'}</div>
       </div>
     );
   }
 
   const change = (v: string) => { setBranch(v); setSel(v); location.reload(); };
+  const code = branches.find((b) => String(b.id) === sel)?.code ?? '∗';
 
   return (
-    <div className="branch-bar">
+    <div className={cls}>
       <span className="branch-label">{t('branch')}</span>
-      <select value={sel} onChange={(e) => change(e.target.value)}>
+      <div className="branch-code" title={t('branch')}>{code}</div>
+      <select value={sel} onChange={(e) => change(e.target.value)} aria-label={t('branch')}>
         <option value="">{t('allBranches')}</option>
         {branches.map((b) => (
           <option key={b.id} value={b.id}>{b.code} · {pick(lang, b, 'name')}</option>
@@ -194,33 +228,117 @@ function Booting() {
   );
 }
 
-function Topbar() {
+function Topbar({ layout }: { layout: Layout }) {
   const { t, lang, setLang } = useI18n();
-  const location = useLocation();
+  const title = usePageTitle();
+  const items = useNavItems();
+  const isTop = layout === 'top';
 
-  const titles: Record<string, string> = {
-    '/': t('navDashboard'),
-    '/waybills': t('navWaybills'),
-    '/fuel': t('navFuel'),
-    '/vehicles': t('navVehicles'),
-    '/categories': t('navCategories'),
-    '/drivers': t('navDrivers'),
-    '/reports': t('navReports'),
-    '/settings': t('navSettings'),
-  };
-  const title = titles[location.pathname]
-    ?? (location.pathname.startsWith('/waybills') ? t('waybill') : t('appName'));
-
-  return (
-    <header className="topbar no-print">
-      <h1>{title}</h1>
+  const controls = (
+    <>
       {LOCAL_MODE && <span className="badge amber" title={t('demoStorage')}>{t('demoBadge')}</span>}
       <div className="spacer" />
       <CommandHint />
+      <LayoutSwitch />
+      <ThemeSwitch />
       <div className="lang-switch">
         <button className={lang === 'uz' ? 'active' : ''} onClick={() => setLang('uz')}>UZ</button>
         <button className={lang === 'ru' ? 'active' : ''} onClick={() => setLang('ru')}>RU</button>
       </div>
+    </>
+  );
+
+  // Yuqori menyu rejimida yon panel yo'q — brend, filial va foydalanuvchi
+  // sarlavhaga ko'chadi, menyu esa ikkinchi qatorda turadi.
+  if (isTop) {
+    return (
+      <header className="topbar topbar-stack no-print">
+        <div className="topbar-row">
+          <div className="top-brand">
+            <div className="brand-logo">⛽</div>
+            <span>{t('appName')}</span>
+          </div>
+          <BranchBar compact />
+          {controls}
+          <UserChip />
+        </div>
+        <nav className="top-nav">
+          {items.map((it) => (
+            <NavLink key={it.to} to={it.to} end={it.end}>
+              <span className="nav-icon">{it.icon}</span>
+              <span>{it.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+    );
+  }
+
+  return (
+    <header className="topbar no-print">
+      <h1>{title}</h1>
+      {controls}
     </header>
+  );
+}
+
+/** Yuqori menyu rejimida sahifa nomi kontent ustida turadi. */
+function PageTitle() {
+  return <h1 className="page-title no-print">{usePageTitle()}</h1>;
+}
+
+/** Yuqori menyu rejimida yon paneldagi foydalanuvchi blokining o'rnini bosadi. */
+function UserChip() {
+  const { t } = useI18n();
+  const { user, logout } = useAuth();
+  return (
+    <div className="user-chip">
+      <span className="avatar">{user?.full_name?.[0]?.toUpperCase() ?? '?'}</span>
+      {!LOCAL_MODE && (
+        <button className="btn btn-sm" onClick={logout} title={t('logout')} aria-label={t('logout')}>⏻</button>
+      )}
+    </div>
+  );
+}
+
+/** Mavzu: yorug' · tizim · qorong'i */
+function ThemeSwitch() {
+  const { t } = useI18n();
+  const [theme, set] = useState<Theme>(getTheme);
+  const choose = (v: Theme) => { setTheme(v); set(v); };
+  const opts: [Theme, string, string][] = [
+    ['light', '☀', t('themeLight')],
+    ['system', '◐', t('themeSystem')],
+    ['dark', '☾', t('themeDark')],
+  ];
+  return (
+    <div className="theme-switch" role="group" aria-label={t('theme')}>
+      {opts.map(([v, icon, label]) => (
+        <button key={v} type="button" title={label} aria-label={label}
+                aria-pressed={theme === v}
+                className={theme === v ? 'active' : ''} onClick={() => choose(v)}>{icon}</button>
+      ))}
+    </div>
+  );
+}
+
+/** Ko'rinish: yon panel · belgilar ustuni · yuqori menyu */
+function LayoutSwitch() {
+  const { t } = useI18n();
+  const [layout, set] = useState<Layout>(getLayout);
+  const choose = (v: Layout) => { setLayout(v); set(v); };
+  const opts: [Layout, string, string][] = [
+    ['side', '▤', t('layoutSide')],
+    ['rail', '▥', t('layoutRail')],
+    ['top', '▬', t('layoutTop')],
+  ];
+  return (
+    <div className="theme-switch layout-switch" role="group" aria-label={t('layout')}>
+      {opts.map(([v, icon, label]) => (
+        <button key={v} type="button" title={label} aria-label={label}
+                aria-pressed={layout === v}
+                className={layout === v ? 'active' : ''} onClick={() => choose(v)}>{icon}</button>
+      ))}
+    </div>
   );
 }
